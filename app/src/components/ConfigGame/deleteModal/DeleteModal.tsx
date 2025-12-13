@@ -1,4 +1,4 @@
-import Style from "./deleteModal.module.css";
+import Style from "./DeleteModal.module.css";
 import {
   useGlobalNotification,
   useGlobalDeleteModal,

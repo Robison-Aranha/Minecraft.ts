@@ -3,17 +3,18 @@ import { Game } from "./components/Game";
 
 const GameFunction: React.FC = () => {
   const mountRef = useRef<HTMLDivElement>(null);
-  const [game] = useState<Game>(new Game(1, mountRef));
+  const [game] = useState<Game>(new Game(3, mountRef));
   const [useStats] = useState<boolean>(true);
 
   useEffect(() => {
     game.setupGame(); 
     game.setupWorld();
-    game.setupPLayer();
+    game.setupPlayer();
     if (useStats) {
       game.setUpStats();
     }
     game.resizeService();
+    game.setPointingArrow();
     game.render();
   }, []);
 

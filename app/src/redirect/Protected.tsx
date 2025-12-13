@@ -2,8 +2,9 @@ import { useGlobalWorld } from "../globalState/GlobalState";
 import { Route, Routes } from "react-router-dom";
 import { Navigate } from "react-router-dom";
 import GameFunction from "../game/Main";
+import {JSX} from "react";
 
-export const Protected: React.FC = () => {
+export const Protected: () => JSX.Element = () => {
   const { worldInfo } = useGlobalWorld();
 
   return worldInfo ? (

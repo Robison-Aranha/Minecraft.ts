@@ -1,22 +1,32 @@
 import * as THREE from "three";
-import { Block } from "./interfaces";
+import { MeshBVH } from "three-mesh-bvh";
+import { ChunckData } from "../interfaces/ChunckData";
+import { CHUNK_HEIGHT, CHUNK_SIZE } from "../enums/Enums";
+import { remapMeshIndex } from "../utils/Utils";
 
-interface Size {
-  width: number;
-  height: number;
+interface Collider {
+  uuid: string;
+  matrix: THREE.Matrix4;
+  bhv: MeshBVH;
 }
 
 export class World extends THREE.Group {
-  private size: Size = { width: 100, height: 328 };
   private chunckQt: number | null;
-  private indexBlocks = new Map<String, Block>();
-  private material: THREE.MeshLambertMaterial = new THREE.MeshLambertMaterial({
-    color: "gray",
-  });
+  private collider: Array<Collider> = [];
+  private material: THREE.MeshLambertMaterial =
+    new THREE.MeshLambertMaterial({ color: "gray" });
 
   constructor(chunckQt: number) {
     super();
     this.chunckQt = chunckQt;
+  }
+
+  getCollider(): Array<Collider> {
+    return this.collider;
+  }
+
+  setCollider(newCollider: Array<Collider>) {
+    this.collider = newCollider;
   }
 
   generateChunck(traceX: number, traceY: number) {
@@ -25,29 +35,52 @@ export class World extends THREE.Group {
     });
 
     worker.postMessage({
-      width: this.size.width,
-      height: this.size.height,
+      width: CHUNK_SIZE,
+      height: CHUNK_HEIGHT,
       traceX: traceX,
-      traceY: traceY
+      traceY: traceY,
     });
 
-    worker.onmessage = (e) => {
-      const { positions, normals, indices, blocks } = e.data;
-      this.createChunck(positions, normals, indices);
-      Object.assign(this.indexBlocks, new Map(blocks));
+    worker.onmessage = (e: { data: ChunckData }) => {
+      const { positions, normals, indices, faceToKey, keyToFace } = e.data;
+
+      if (!positions || !normals || !indices || !faceToKey || !keyToFace)
+        return null;
+
+      const pos = JSON.parse(positions);
+      const nor = JSON.parse(normals);
+      const ind = JSON.parse(indices);
+      const keyToFaceArray = JSON.parse(keyToFace);
+      const faceToKeyArray = JSON.parse(faceToKey);
+
+      this.createChunck(
+        pos,
+        nor,
+        ind,
+        traceX,
+        traceY,
+        new Map(faceToKeyArray),
+        new Map(keyToFaceArray)
+      );
+
       worker.terminate();
     };
   }
 
   createChunck(
-    positions: Array<number>,
-    normals: Array<number>,
-    indices: Array<number>
+    positions: number[],
+    normals: number[],
+    indices: number[],
+    traceX: number,
+    traceY: number,
+    faceToKey: Map<number, string>,
+    keyToFace: Map<string, number[]>
   ) {
     const positionNumComponents = 3;
     const normalNumComponents = 3;
 
     const geometry = new THREE.BufferGeometry();
+
     geometry.setAttribute(
       "position",
       new THREE.BufferAttribute(
@@ -55,26 +88,75 @@ export class World extends THREE.Group {
         positionNumComponents
       )
     );
+
     geometry.setAttribute(
       "normal",
       new THREE.BufferAttribute(new Float32Array(normals), normalNumComponents)
     );
-    geometry.setIndex(indices);
+
+    geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+
+    const indexAttr = geometry.getIndex()!;
+    const originalIndexMap: number[][] = [];
+
+    for (let i = 0; i < indexAttr.count; i += 3) {
+      originalIndexMap.push([
+        indexAttr.getX(i),
+        indexAttr.getX(i + 1),
+        indexAttr.getX(i + 2),
+      ]);
+    }
+
     const mesh = new THREE.Mesh(geometry, this.material);
+
+    mesh.userData["id"] = mesh.uuid;
+    mesh.userData["traceX"] = traceX;
+    mesh.userData["traceY"] = traceY;
+    mesh.userData["faceToKey"] = faceToKey;
+    mesh.userData["keyToFace"] = keyToFace;
+    mesh.userData["addedBlocks"] = new Set<string>();
+    mesh.userData["removedBlocks"] = new Set<string>();
+
+    const bvh = new MeshBVH(geometry);
+
+    const newIndexAttr = geometry.getIndex()!;
+    const reorderedIndexMap: number[][] = [];
+
+    for (let i = 0; i < newIndexAttr.count; i += 3) {
+      reorderedIndexMap.push([
+        newIndexAttr.getX(i),
+        newIndexAttr.getX(i + 1),
+        newIndexAttr.getX(i + 2),
+      ]);
+    }
+
+    const remap = remapMeshIndex(originalIndexMap, reorderedIndexMap);
+    mesh.userData["remapFaceIndex"] = remap;
+
+    this.collider.push({
+      uuid: mesh.uuid,
+      bhv: bvh,
+      matrix: mesh.matrixWorld,
+    });
+
     this.add(mesh);
   }
 
   generateWorld() {
     if (this.chunckQt) {
       this.generateChunck(0, 0);
+
       for (let r = 1; r <= this.chunckQt; r++) {
-        const valueGen = r * this.size.width;
-        this.generateChunck(valueGen, 0);
-        this.generateChunck(valueGen * -1, 0);
-        this.generateChunck(0, valueGen);
-        this.generateChunck(0, valueGen * -1);
+        const valueGen = r * CHUNK_SIZE;
+
+         this.generateChunck(valueGen, 0);
+         this.generateChunck(valueGen * -1, 0);
+         this.generateChunck(0, valueGen);
+         this.generateChunck(0, valueGen * -1);
+
         for (let h = 1; h <= this.chunckQt; h++) {
-          const valuePre = h * this.size.width;
+          const valuePre = h * CHUNK_SIZE;
+
           this.generateChunck(valueGen, valuePre);
           this.generateChunck(valueGen, valuePre * -1);
           this.generateChunck(valueGen * -1, valuePre);
@@ -82,10 +164,6 @@ export class World extends THREE.Group {
         }
       }
     }
-  }
-
-  getIndexBlocks(): Map<String, Block> {
-    return this.indexBlocks;
   }
 
   setupLights() {
