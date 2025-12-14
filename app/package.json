@@ -3,14 +3,23 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "main": "src/electron/main.ts",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview",
-    "electron": "electron .",
-    "desktop": "npm run build && electron ."
+  "main": "dist/electron/main.js",
+ "scripts": {
+  "build:renderer": "vite build",
+  "build:electron": "tsc -p tsconfig.node.json",
+  "build": "npm run build:renderer && npm run build:electron",
+  "desktop": "npm run build && electron .",
+  "dist:win": "npm run build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.rice.minecraft",
+    "productName": "Minecraft TS",
+    "files": [
+      "dist/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
   },
   "dependencies": {
     "@react-three/drei": "^10.0.5",
@@ -39,6 +48,7 @@
     "@types/three": "^0.175.0",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^39.2.7",
+    "electron-builder": "^26.0.12",
     "eslint": "^9.21.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.19",
