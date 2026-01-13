@@ -3,14 +3,16 @@ import {
   useGlobalNotification,
   useGlobalDeleteModal,
   useGlobalEnterWorldModal,
-  useGlobalLoading
+  useGlobalLoading,
+  useGlobalWorld
 } from "../../globalState/GlobalState";
 import { Button } from "../components";
 import { useEffect, useState } from "react";
-import { useGameApi } from "../../api/game/gameApi";
 import MiniatureImage from "../../assets/minecraf_miniature.jpg";
 import Style from "./ConfigGame.module.css";
 import { DeleteModal, EnterWorldModal } from "../components";
+import { WorldData } from "../../shared/interface";
+
 
 const listWorldModes = ["SuperFlat", "Default"];
 
@@ -21,30 +23,22 @@ interface Data {
   worldType: string;
 }
 
-interface world {
-  id: number;
-  worldName: string;
-  worldType: string;
-  worldImage: string;
-  worldCreatedDate: string;
-}
-
 export const ConfigGame: React.FC = () => {
   const [worldModes, setWorldModes] = useState<string[]>([...listWorldModes]);
-  const [worldToDelete, setWorldToDelete] = useState<world>();
-  const [worldToEnter, setWorldToEnter] = useState<world>();
+  const [worldToDelete, setWorldToDelete] = useState<WorldData>();
+  const [worldToEnter, setWorldToEnter] = useState<WorldData>();
   const [data, setData] = useState<Data>({
     worldName: "",
     worldType: "",
   });
-  const [listationGames, setListationGames] = useState<world[]>([]);
+  const [listationGames, setListationGames] = useState<WorldData[]>([]);
   const { showDeleteModal, setShowDeleteModal } = useGlobalDeleteModal();
   const { showEnterWorldModal, setShowEnterWorldModal } =
     useGlobalEnterWorldModal();
   const { setLoading } = useGlobalLoading();
-  const { setUser } = useUserGlobalState();
-  const { createWorld, listWorlds } = useGameApi();
+  const { user, setUser } = useUserGlobalState();
   const { addNotificationMessage } = useGlobalNotification();
+  const { setWorldInfo } = useGlobalWorld()
 
   useEffect(() => {
     listWorldsService();
@@ -90,12 +84,8 @@ export const ConfigGame: React.FC = () => {
   const createWorldService = async () => {
     setLoading(true);
     try {
-      const formData = new FormData();
-      formData.append("worldName", data.worldName);
-      formData.append("worldType", data.worldType);
-      formData.append("worldImage", await convertImageToFile(MiniatureImage));
 
-      await createWorld(formData);
+      await window.api.createWorld(user.username, data.worldName, data.worldType);
 
       listWorldsService();
 
@@ -106,18 +96,12 @@ export const ConfigGame: React.FC = () => {
     setLoading(false);
   };
 
-  const convertImageToFile = async (image: string): Promise<File> => {
-    const response = await fetch(image);
-    const blob = await response.blob();
-    return new File([blob], "minecraft_miniature.jpg", { type: blob.type });
-  };
-
   const listWorldsService = async () => {
     setLoading(true);
     try {
-      const response = await listWorlds();
+      const worlds = await window.api.listWorlds(user.username);
 
-      setListationGames([...response]);
+      setListationGames([...worlds]);
     } catch (error) {
       addNotificationMessage({ message: "Error return user games!" });
     }
@@ -149,10 +133,7 @@ export const ConfigGame: React.FC = () => {
 
   const handleGoBack = () => {
     setUser({
-      id: "",
       username: "",
-      loged: false,
-      token: ""
     });
   };
 
@@ -160,18 +141,15 @@ export const ConfigGame: React.FC = () => {
     <>
       {worldToDelete ? (
         <DeleteModal
+          world={worldToDelete}
           listWorldsService={listWorldsService}
-          worldId={worldToDelete.id}
-          worldName={worldToDelete.worldName}
         />
       ) : (
         ""
       )}
       {worldToEnter ? (
         <EnterWorldModal
-          worldId={worldToEnter.id}
-          worldName={worldToEnter.worldName}
-          worldType={worldToEnter.worldType}
+          world={worldToEnter}
         />
       ) : (
         ""
@@ -204,7 +182,7 @@ export const ConfigGame: React.FC = () => {
                   className={
                     Style.container_config_game_list_worlds_component_img_world
                   }
-                  src={e.worldImage}
+                  src={(e.worldImage && e.worldImage != "") ? e.worldImage : MiniatureImage}
                 />
                 <span
                   className={

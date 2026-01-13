@@ -1,10 +1,8 @@
 import { create } from "zustand";
+import { WorldData } from "../shared/interface";
 
 interface UserState {
-  id: string;
   username: string;
-  loged: boolean;
-  token: string;
 }
 
 interface UserGlobalState {
@@ -32,19 +30,13 @@ interface GlobalDeleteModal {
   setShowDeleteModal: (showDeleteModal: boolean) => void;
 }
 
-interface GlobalWorldInfo {
-  worldId: number;
-  worldName: string;
-  worldType: string;
-}
-
 interface GlobalWorld {
-  worldInfo: GlobalWorldInfo;
-  setWorldInfo: (worldInfo: GlobalWorldInfo) => void;
+  worldInfo: WorldData;
+  setWorldInfo: (worldInfo: WorldData) => void;
 }
 
 const storedWorld = localStorage.getItem("world");
-const initialWorldState: GlobalWorldInfo = storedWorld
+const initialWorldState: WorldData = storedWorld
   ? JSON.parse(storedWorld)
   : { worldId: 0, worldName: "", worldType: "" };
 
@@ -95,7 +87,7 @@ const useGlobalNotification = create<GlobalNotification>((set) => ({
 const storedUser = localStorage.getItem("user");
 const initialUserState: UserState = storedUser
   ? JSON.parse(storedUser)
-  : { id: "", nome: "", loged: false };
+  : { username: "" };
 
 const useUserGlobalState = create<UserGlobalState>((set) => ({
   user: { ...initialUserState },

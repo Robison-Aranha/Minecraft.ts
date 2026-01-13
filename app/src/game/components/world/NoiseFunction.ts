@@ -1,4 +1,4 @@
-import { simplex } from "./Noise";
+import { NoiseFunction2D } from "simplex-noise";
 
 type NoiseOptions = {
   octaves: number;
@@ -7,7 +7,7 @@ type NoiseOptions = {
   scale: number;
 };
 
-export function createOctaveNoise2D(options: NoiseOptions) {
+export function createOctaveNoise2D(options: NoiseOptions, simplex: NoiseFunction2D) {
   return (x: number, y: number): number => {
     let amplitude = 1;
     let frequency = 0.5;

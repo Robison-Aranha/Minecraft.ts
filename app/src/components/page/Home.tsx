@@ -11,10 +11,10 @@ import Style from "./Home.module.css";
 
 export const Home: React.FC = () => {
   const { user } = useUserGlobalState();
-  const [isLogging, setIsLogging] = useState<boolean>(user.loged);
+  const [isLogging, setIsLogging] = useState<boolean>(user.username !== null && user.username != "");
 
   useEffect(() => {
-    setIsLogging(user.loged);
+    setIsLogging(user.username !== null && user.username != "");
   }, [user]);
 
   const returnState = () => {

@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import { World } from "../world/World";
 import { MeshBVH } from "three-mesh-bvh";
-import { CHUNK_HEIGHT, CHUNK_SIZE } from "../enums/Enums";
+import { CHUNK_HEIGHT, CHUNK_SIZE } from "../const/const";
 import { remapMeshIndex } from "../utils/Utils";
-import { ChunckData } from "../interfaces/ChunckData";
+import { ChunckGenData } from "../interfaces/ChunckGenData";
+import { ChunckUserData } from "../interfaces/ChunckUserData";
 
 interface Controls {
   moveForward: boolean;
@@ -36,8 +37,9 @@ export class Player {
   private fallingMultPlayer = 0;
   private actualJumpForce = this.jumpForce;
   private desaceleration = 0.2;
+  private currentChunck: THREE.Mesh | null = null;
 
-  private worker = new Worker(new URL("../world/ChunckWorker.ts", import.meta.url), {
+  private principalWorker = new Worker(new URL("../world/Chunck.worker.ts", import.meta.url), {
     type: "module",
   });
 
@@ -53,7 +55,7 @@ export class Player {
       0.1,
       1000
     );
-    this.worker.onmessage = this.onWorkerMessage.bind(this);
+    this.principalWorker.onmessage = this.onWorkerMessage.bind(this);
   }
 
   setupCamera() {
@@ -79,7 +81,7 @@ export class Player {
       document.body.requestPointerLock();
     });
 
-    this.camera.position.set(0, 500, 100);
+    this.camera.position.set(0, 300, 0);
   }
 
   setupControls() {
@@ -158,14 +160,14 @@ export class Player {
     const traceX = chunkMesh.userData["traceX"];
     const traceY = chunkMesh.userData["traceY"];
 
-    this.changeMeshStructure(traceX, traceY, removedBlocks, chunkMesh)
+    this.changeMeshStructure(traceX, traceY, removedBlocks, chunkMesh, this.principalWorker)
   }
 
 
-  changeMeshStructure(traceX: number, traceY: number, removedBlocks: Set<string>, mesh: THREE.Mesh) {
-    const meshId = mesh.userData["id"];
+  changeMeshStructure(traceX: number, traceY: number, removedBlocks: Set<string>, mesh: THREE.Mesh, worker: Worker) {
+    const meshId = mesh.uuid;
 
-    this.worker.postMessage({
+    worker.postMessage({
       width: CHUNK_SIZE,
       height: CHUNK_HEIGHT,
       traceX: traceX,
@@ -175,13 +177,14 @@ export class Player {
     });
   }
 
-  onWorkerMessage(e: { data: ChunckData }) {
+  onWorkerMessage(e: { data: ChunckGenData }) {
     const {
       positions,
       normals,
       indices,
       faceToKey,
       keyToFace,
+      blockData,
       meshId
     } = e.data;
     if (
@@ -194,13 +197,14 @@ export class Player {
     )
       return null;
 
-    const mesh = this.world.children?.find((c: any) => c.userData && c.userData.id === meshId) as THREE.Mesh | undefined;
+    const mesh = this.getNearChucks()?.find((c: any) => c?.uuid === meshId) as THREE.Mesh | undefined;
     if (!mesh) return;
 
     const pos = JSON.parse(positions);
     const nor = JSON.parse(normals);
     const ind = JSON.parse(indices);
     const faceToKeyArray = JSON.parse(faceToKey);
+    const blockDataArray = JSON.parse(blockData);
 
     const newGeometry = new THREE.BufferGeometry();
     const positionNumComponents = 3;
@@ -220,7 +224,6 @@ export class Player {
     newGeometry.setIndex(new THREE.BufferAttribute(newInd, 1));
 
     mesh.geometry = newGeometry;
-    mesh.userData["faceToKey"] = new Map(faceToKeyArray);
 
     const indexAttr = newGeometry.getIndex()!;
     const originalIndexMap: number[][] = [];
@@ -246,12 +249,38 @@ export class Player {
       ]);
     }
 
-    mesh.userData["remapFaceIndex"] = remapMeshIndex(originalIndexMap, reorderedIndexMap);
+    const key = `${mesh.userData["traceX"]}${mesh.userData["traceY"]}`
 
-    let newCollider = this.world.getCollider().filter(c => c.uuid != meshId)
-    newCollider.push({ uuid: meshId, bhv: bvh, matrix: mesh.matrixWorld })
+    const userData: ChunckUserData = {
+        faceToKey: new Map(faceToKeyArray),
+        remapFaceIndex: remapMeshIndex(originalIndexMap, reorderedIndexMap),
+        blockData: new Map(blockDataArray)
+    }
+    
+    this.world.saveChunck(userData);
+    this.world.getCollider().set(key, { bhv: bvh, matrix: mesh.matrixWorld })
+  }
 
-    this.world.setCollider(newCollider);
+  getNearChucks() {
+    if (this.currentChunck) {
+      const currentTraceX = this.currentChunck.userData["traceX"];
+      const currentTraceY = this.currentChunck.userData["traceY"];
+      const cordsToVerify = [
+        `${currentTraceX}${currentTraceY}`,
+        `${currentTraceX + CHUNK_SIZE}${currentTraceY}`, 
+        `${currentTraceX + CHUNK_SIZE}${currentTraceY + CHUNK_SIZE}`, 
+        `${currentTraceX + CHUNK_SIZE}${currentTraceY - CHUNK_SIZE}`, 
+        `${currentTraceX - CHUNK_SIZE}${currentTraceY}`, 
+        `${currentTraceX - CHUNK_SIZE}${currentTraceY - CHUNK_SIZE}`, 
+        `${currentTraceX - CHUNK_SIZE}${currentTraceY + CHUNK_SIZE}`, 
+        `${currentTraceX}${currentTraceY + CHUNK_SIZE}`, 
+        `${currentTraceX}${currentTraceY - CHUNK_SIZE}`]
+
+
+      const 
+      
+      return cordsToVerify.map(c => this.world.getChunckMap().get(c));
+    }
   }
 
   updatePlayerGround(delta: number) {
@@ -263,6 +292,9 @@ export class Player {
     );
 
     if (intersectsDown.length > 0) {
+      const mesh = intersectsDown[0].object as THREE.Mesh;
+      this.currentChunck = mesh;
+
       const obj = intersectsDown[0].point;
       if (!this.isJumping) {
         const targetY = obj.y + this.playerHeight;
@@ -350,7 +382,7 @@ export class Player {
     return this.camera;
   }
 
-  private checkCollision(position: THREE.Vector3): boolean {
+  private checkCollision(position: THREE.Vector3): boolean | undefined {
     const min = new THREE.Vector3(
       position.x - this.playerRadius,
       position.y - this.playerHeight,
@@ -365,7 +397,14 @@ export class Player {
 
     const playerBox = new THREE.Box3(min, max);
 
-    return this.world.getCollider().some((element) => {
+    const colliders = this.getNearChucks()?.map(c => { 
+      const traceX = c?.userData["traceX"];
+      const traceY = c?.userData["traceY"];
+      const key = `${traceX}${traceY}`;   
+      return this.world.getCollider().get(key) 
+    }).filter(c => c != null);
+
+    return colliders?.some((element) => {
       if (!element.bhv) return false;
 
       return (element.bhv as MeshBVH).intersectsBox(playerBox, element.matrix);

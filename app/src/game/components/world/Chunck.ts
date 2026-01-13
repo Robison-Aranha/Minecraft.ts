@@ -1,5 +1,9 @@
-import { ChunckData } from "../interfaces/ChunckData";
+import { BlockType } from "../enums/BlockType";
+import { BlockData } from "../interfaces/ChunckData";
+import { ChunckGenData } from "../interfaces/ChunckGenData";
+import { mulberry32 } from "../utils/Utils";
 import { createOctaveNoise2D } from "./NoiseFunction";
+import { createNoise2D } from "simplex-noise";
 
 interface Face {
   dir: Array<number>;
@@ -22,6 +26,7 @@ interface ChunckOptions {
   traceY?: number;
   addedBlocks?: Set<string>;
   removedBlocks?: Set<string>;
+  seed: number,
   positions?: number[];
   indices?: number[];
   normals?: number[];
@@ -34,14 +39,10 @@ export class Chunck {
   private traceY: number;
   private limitX: number;
   private limitY: number;
-  private noise = createOctaveNoise2D({
-    octaves: 4,
-    persistence: 0.5,
-    lacunarity: 2,
-    scale: 100,
-  });
+  private noise;
   private addedBlocks;
   private removedBlocks;
+  private blockData: Map<string, BlockData>;
   private faceToKey: Map<number, string> = new Map();
   private keyToFace: Map<string, number[]> = new Map();
   private baseHeight = 200;
@@ -123,6 +124,15 @@ export class Chunck {
     this.positions = options.positions ?? [];
     this.normals = options.normals ?? [];
     this.indices = options.indices ?? [];
+
+    this.blockData = new Map();
+
+    this.noise = createOctaveNoise2D({
+      octaves: 4,
+      persistence: 0.5,
+      lacunarity: 2,
+      scale: 100,
+    }, createNoise2D(mulberry32(options.seed)));
   }
 
   generateChunck() {
@@ -135,7 +145,8 @@ export class Chunck {
         ) {
           const keyMap = `${x},${z},${y}`;
           if (this.placeBlock(x, z, y, keyMap)) {
-            this.getFaceToBlockDirection({ x: x, z: z, y: y}, keyMap);
+            const isEdge = (x == this.traceX || x == this.limitX - 1) || (y == this.traceY || y == this.limitY - 1)
+            this.getFaceToBlockDirection({ x: x, z: z, y: y}, keyMap, isEdge);
           }
         }
       }
@@ -144,7 +155,8 @@ export class Chunck {
 
   getFaceToBlockDirection(
     location: { x: number; z: number; y: number },
-    keyMap: string
+    keyMap: string,
+    isEdge: boolean
   ) {
     if (!this.positions || !this.normals || !this.indices) return;
 
@@ -182,6 +194,8 @@ export class Chunck {
       }
     }
 
+    this.blockData.set(keyMap, { cord: keyMap, type: BlockType.STONE, isEdge: isEdge})
+
     if (faceKeys.length > 0) {
       this.keyToFace.set(keyMap, faceKeys);
     }
@@ -200,13 +214,14 @@ export class Chunck {
     return false;
   }
 
-  getData(): ChunckData {
+  getData(): ChunckGenData {
     return {
       positions: JSON.stringify(this.positions),
       normals: JSON.stringify(this.normals),
       indices: JSON.stringify(this.indices),
       faceToKey: JSON.stringify([...this.faceToKey]),
       keyToFace: JSON.stringify([...this.keyToFace]),
+      blockData: JSON.stringify([...this.blockData]),
       meshId: ""
     };
   }
@@ -216,3 +231,5 @@ export class Chunck {
     return z < surface;
   }
 }
+
+

@@ -2,18 +2,14 @@ import Style from "./EnterWorldModal.module.css";
 import { useNavigate } from "react-router-dom";
 import { useGlobalEnterWorldModal, useGlobalWorld } from "../../../globalState/GlobalState";
 import { Button } from "../../components";
+import { WorldData } from "../../../shared/interface";
 
-interface EnterWorldProps {
-  worldId: number;
-  worldName: string;
-  worldType: string;
+interface ModalProps {
+  world: WorldData
 }
 
-export const EnterWorldModal: React.FC<EnterWorldProps> = ({
-  worldId,
-  worldName,
-  worldType
-  }) => {
+
+export const EnterWorldModal: React.FC<ModalProps> = ({ world }) => {
   const { showEnterWorldModal, setShowEnterWorldModal } =
     useGlobalEnterWorldModal();
   const { setWorldInfo } = useGlobalWorld()
@@ -22,9 +18,7 @@ export const EnterWorldModal: React.FC<EnterWorldProps> = ({
 
   const enterGameService = () => {
     setWorldInfo({
-      worldId: worldId,
-      worldName: worldName,
-      worldType: worldType
+     ...world
     })
     navigate("/game")
   }
@@ -36,7 +30,7 @@ export const EnterWorldModal: React.FC<EnterWorldProps> = ({
     >
       <div className={Style.section_container_enter_modal}>
         <div className={Style.text_enter_modal}>
-          <span> Deseja mesmo entrar no mundo "{worldName}" ? </span>
+          <span> Deseja mesmo entrar no mundo "{world.worldName}" ? </span>
         </div>
         <div className={Style.action_enter_modal}>
           <Button style={{ width: "40%" }} onClick={enterGameService}> Entrar </Button>

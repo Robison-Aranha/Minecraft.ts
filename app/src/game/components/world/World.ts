@@ -1,36 +1,41 @@
 import * as THREE from "three";
 import { MeshBVH } from "three-mesh-bvh";
-import { ChunckData } from "../interfaces/ChunckData";
-import { CHUNK_HEIGHT, CHUNK_SIZE } from "../enums/Enums";
+import { ChunckGenData } from "../interfaces/ChunckGenData";
+import { CHUNK_HEIGHT, CHUNK_SIZE } from "../const/const";
 import { remapMeshIndex } from "../utils/Utils";
+import { BlockData } from "../interfaces/ChunckData";
+import { ChunckUserData } from "../interfaces/ChunckUserData";
 
 interface Collider {
-  uuid: string;
   matrix: THREE.Matrix4;
   bhv: MeshBVH;
 }
 
 export class World extends THREE.Group {
   private chunckQt: number | null;
-  private collider: Array<Collider> = [];
+  private collider: Map<string, Collider> = new Map();
   private material: THREE.MeshLambertMaterial =
     new THREE.MeshLambertMaterial({ color: "gray" });
+  private seed: number | undefined;
+  private chunckManager = new Worker(new URL("../world/ChunckManager.worker.ts", import.meta.url), {
+    type: "module",
+  });
 
   constructor(chunckQt: number) {
     super();
     this.chunckQt = chunckQt;
   }
 
-  getCollider(): Array<Collider> {
+  setSeed(seed: number) {
+    this.seed = seed;
+  }
+
+  getCollider(): Map<string, Collider> {
     return this.collider;
   }
 
-  setCollider(newCollider: Array<Collider>) {
-    this.collider = newCollider;
-  }
-
   generateChunck(traceX: number, traceY: number) {
-    const worker = new Worker(new URL("./ChunckWorker.ts", import.meta.url), {
+    const worker = new Worker(new URL("./Chunck.worker.ts", import.meta.url), {
       type: "module",
     });
 
@@ -39,12 +44,13 @@ export class World extends THREE.Group {
       height: CHUNK_HEIGHT,
       traceX: traceX,
       traceY: traceY,
+      seed: this.seed
     });
 
-    worker.onmessage = (e: { data: ChunckData }) => {
-      const { positions, normals, indices, faceToKey, keyToFace } = e.data;
+    worker.onmessage = (e: { data: ChunckGenData }) => {
+      const { positions, normals, indices, faceToKey, keyToFace, blockData } = e.data;
 
-      if (!positions || !normals || !indices || !faceToKey || !keyToFace)
+      if (!positions || !normals || !indices || !faceToKey || !keyToFace || !blockData)
         return null;
 
       const pos = JSON.parse(positions);
@@ -52,6 +58,7 @@ export class World extends THREE.Group {
       const ind = JSON.parse(indices);
       const keyToFaceArray = JSON.parse(keyToFace);
       const faceToKeyArray = JSON.parse(faceToKey);
+      const blockDataArray = JSON.parse(blockData)
 
       this.createChunck(
         pos,
@@ -60,7 +67,8 @@ export class World extends THREE.Group {
         traceX,
         traceY,
         new Map(faceToKeyArray),
-        new Map(keyToFaceArray)
+        new Map(keyToFaceArray),
+        new Map(blockDataArray)
       );
 
       worker.terminate();
@@ -74,7 +82,8 @@ export class World extends THREE.Group {
     traceX: number,
     traceY: number,
     faceToKey: Map<number, string>,
-    keyToFace: Map<string, number[]>
+    keyToFace: Map<string, number[]>,
+    blockData: Map<string, BlockData>
   ) {
     const positionNumComponents = 3;
     const normalNumComponents = 3;
@@ -109,14 +118,6 @@ export class World extends THREE.Group {
 
     const mesh = new THREE.Mesh(geometry, this.material);
 
-    mesh.userData["id"] = mesh.uuid;
-    mesh.userData["traceX"] = traceX;
-    mesh.userData["traceY"] = traceY;
-    mesh.userData["faceToKey"] = faceToKey;
-    mesh.userData["keyToFace"] = keyToFace;
-    mesh.userData["addedBlocks"] = new Set<string>();
-    mesh.userData["removedBlocks"] = new Set<string>();
-
     const bvh = new MeshBVH(geometry);
 
     const newIndexAttr = geometry.getIndex()!;
@@ -131,15 +132,32 @@ export class World extends THREE.Group {
     }
 
     const remap = remapMeshIndex(originalIndexMap, reorderedIndexMap);
-    mesh.userData["remapFaceIndex"] = remap;
 
-    this.collider.push({
-      uuid: mesh.uuid,
+    const userData: ChunckUserData = {
+      traceX: traceX,
+      traceY: traceY,
+      faceToKey: faceToKey,
+      keyToFace: keyToFace,
+      addedBlocks: new Set<string>(),
+      removedBlocks: new Set<string>(),
+      blockData: blockData,
+      remapFaceIndex: remap,
+    }
+
+    const key = `${traceX}${traceY}`;
+
+    this.collider.set(key, {
       bhv: bvh,
       matrix: mesh.matrixWorld,
     });
-
+    this.saveChunck(userData)
     this.add(mesh);
+  }
+
+  saveChunck(userData: any) {
+    this.chunckManager.postMessage({
+      ...userData
+    })
   }
 
   generateWorld() {

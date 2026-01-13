@@ -1,7 +1,8 @@
 import * as THREE from "three";
-import { Player } from "./Player/Player";
+import { Player } from "./player/Player";
 import { World } from "./world/World";
 import Stats from "three/examples/jsm/libs/stats.module.js";
+
 
 export class Game {
     private stats?: Stats;
@@ -11,6 +12,7 @@ export class Game {
     private scene: THREE.Scene = new THREE.Scene();
     private renderer: THREE.WebGLRenderer = new THREE.WebGLRenderer();
     private clock: THREE.Clock = new THREE.Clock();
+    private seed: number | undefined;
 
     constructor(chunckQt: number, ref: React.RefObject<HTMLDivElement | null>) {
         this.ref = ref;
@@ -18,9 +20,16 @@ export class Game {
         this.player = new Player(this.world);
     }
 
+    setSeed(seed: number) {
+        this.seed = seed;
+    }
+
     setupWorld() {
         this.world.setupLights();
         this.world.generateWorld();
+        if (this.seed) {
+            this.world.setSeed(this.seed);
+        }
         this.scene.add(this.world);
     }
 

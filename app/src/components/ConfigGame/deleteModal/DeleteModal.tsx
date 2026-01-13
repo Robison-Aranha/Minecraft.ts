@@ -3,30 +3,30 @@ import {
   useGlobalNotification,
   useGlobalDeleteModal,
   useGlobalLoading,
+  useUserGlobalState
 } from "../../../globalState/GlobalState";
-import { useGameApi } from "../../../api/game/gameApi";
 import { Button } from "../../components";
+import { WorldData } from "../../../shared/interface";
 
 interface ModalProps {
-  worldId: number;
-  worldName: string;
+  world: WorldData
   listWorldsService: () => void;
 }
 
 export const DeleteModal: React.FC<ModalProps> = ({
-  worldId,
-  listWorldsService,
-  worldName,
+  world,
+  listWorldsService
 }) => {
   const { showDeleteModal, setShowDeleteModal } = useGlobalDeleteModal();
   const { setLoading } = useGlobalLoading();
-  const { deleteWorld } = useGameApi();
   const { addNotificationMessage } = useGlobalNotification();
+  const { user } = useUserGlobalState();
 
   const deleteWorldService = async () => {
     setLoading(true);
     try {
-      await deleteWorld(worldId);
+      
+      await window.api.deleteWorld(user.username, world.worldName);
 
       listWorldsService();
 
@@ -45,7 +45,7 @@ export const DeleteModal: React.FC<ModalProps> = ({
     >
       <div className={Style.section_container_delete_modal}>
         <div className={Style.text_delete_modal}>
-          <span> Deseja mesmo deletar o mundo "{worldName}" ? </span>
+          <span> Deseja mesmo deletar o mundo "{world.worldName}" ? </span>
         </div>
         <div className={Style.action_delete_modal}>
           <Button style={{ width: "40%" }} onClick={deleteWorldService}>

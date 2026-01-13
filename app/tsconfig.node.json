@@ -1,11 +1,10 @@
 {
   "compilerOptions": {
     "outDir": "dist/electron",
-    "module": "NodeNext",
+    "module": "CommonJS",
     "target": "ES2020",
-    "moduleResolution": "NodeNext",
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "strict": true
   },
   "include": ["src/electron/**/*"]
 }
