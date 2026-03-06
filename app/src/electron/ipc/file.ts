@@ -5,7 +5,6 @@ import { WorldData } from "../../shared/interface";
 
 const DEFAULT_WORLD_NAME = "world.json"
 
-
 export function registerWorldIpc() {
   ipcMain.handle("create-world", async (_, playerName: string, worldName: string, worldType: string) => {
     return createWorld(playerName, worldName, worldType);

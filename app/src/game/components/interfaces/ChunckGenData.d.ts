@@ -1,9 +1,22 @@
-export interface ChunckGenData {
+export interface ChunckMeshGenData {
   positions: string;        
   normals: string;          
   indices: string;        
   faceToKey: string;       
   keyToFace: string;
-  blockData: string;
-  meshId: string;
+  layers: string,
+  key?: string;
 }
+
+export interface ChunckBlockGenData {
+  blocks: string;
+  key?: string;
+}
+
+interface ChunckLayer {
+  positions: number[];
+  normals: number[];
+  indices: number[];
+}
+
+

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { Player } from "./player/Player";
 import { World } from "./world/World";
 import Stats from "three/examples/jsm/libs/stats.module.js";
+import { ChunckMsgTypes } from "./enums/ChunckMsgTypes";
 
 
 export class Game {
@@ -24,9 +25,10 @@ export class Game {
         this.seed = seed;
     }
 
-    setupWorld() {
+    async setupWorld() {
         this.world.setupLights();
-        this.world.generateWorld();
+        await this.world.generateWorld(ChunckMsgTypes.GEN_BLOCK);
+        await this.world.generateWorld(ChunckMsgTypes.GEN_MESH);
         if (this.seed) {
             this.world.setSeed(this.seed);
         }

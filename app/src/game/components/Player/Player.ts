@@ -1,10 +1,11 @@
 import * as THREE from "three";
 import { World } from "../world/World";
 import { MeshBVH } from "three-mesh-bvh";
-import { CHUNK_HEIGHT, CHUNK_SIZE } from "../const/const";
+import { CHUNK_TOTAL_HEIGHT, CHUNK_SIZE } from "../const/const";
 import { remapMeshIndex } from "../utils/Utils";
-import { ChunckGenData } from "../interfaces/ChunckGenData";
-import { ChunckUserData } from "../interfaces/ChunckUserData";
+import { createWorker, WorkerPaths } from "../workers/worker-factory/WorkerFac";
+import { BlockType } from "../enums/BlockType";
+import { ChunckMsgTypes } from "../enums/ChunckMsgTypes";
 
 interface Controls {
   moveForward: boolean;
@@ -37,11 +38,7 @@ export class Player {
   private fallingMultPlayer = 0;
   private actualJumpForce = this.jumpForce;
   private desaceleration = 0.2;
-  private currentChunck: THREE.Mesh | null = null;
-
-  private principalWorker = new Worker(new URL("../world/Chunck.worker.ts", import.meta.url), {
-    type: "module",
-  });
+  private currentChunckKey: { traceX: number, traceY: number } | null = null;
 
   private raycasterHeight: THREE.Raycaster = new THREE.Raycaster();
   private raycasterAction: THREE.Raycaster = new THREE.Raycaster();
@@ -55,7 +52,6 @@ export class Player {
       0.1,
       1000
     );
-    this.principalWorker.onmessage = this.onWorkerMessage.bind(this);
   }
 
   setupCamera() {
@@ -150,61 +146,65 @@ export class Player {
     });
   }
 
-  removeBlock(faceIndex: number | null | undefined, chunkMesh: THREE.Mesh) {
+  async removeBlock(faceIndex: number | null | undefined, chunkMesh: THREE.Mesh) {
     if (faceIndex == null || !chunkMesh) return;
 
-    const faceIndexOriginal = chunkMesh.userData["remapFaceIndex"].get(faceIndex);
-    const faceKey = chunkMesh.userData["faceToKey"].get(faceIndexOriginal);
-    const removedBlocks = chunkMesh.userData["removedBlocks"];
-    removedBlocks.add(faceKey);
-    const traceX = chunkMesh.userData["traceX"];
-    const traceY = chunkMesh.userData["traceY"];
+    const traceX = chunkMesh.userData.traceX;
+    const traceY = chunkMesh.userData.traceY;
+    const chunckKey = `${traceX}:${traceY}`;
 
-    this.changeMeshStructure(traceX, traceY, removedBlocks, chunkMesh, this.principalWorker)
-  }
+    const nearChuncks = this.world.getNeighbourChuncks(traceX, traceY);
 
+    const faceIndexOriginal = chunkMesh.userData.remapFaceIndex.get(faceIndex);
+    const faceKey = chunkMesh.userData.faceToKey.get(faceIndexOriginal);
 
-  changeMeshStructure(traceX: number, traceY: number, removedBlocks: Set<string>, mesh: THREE.Mesh, worker: Worker) {
-    const meshId = mesh.uuid;
+    this.world.getChunckMan().setBlockValueInChunckBlocksMap(chunckKey, faceKey, BlockType.AIR)
+
+    const chunckBlockData = this.world.getChunckMan().getChunckBlocksMap().get(chunckKey) ?? [];
+
+    const worker = createWorker(WorkerPaths.CHUNCK_GENERATION);
+    worker.onmessage = (e: any) => {
+      this.onWorkerMessage({ ...e.data, key: `${traceX}:${traceY}` })
+    }
 
     worker.postMessage({
       width: CHUNK_SIZE,
-      height: CHUNK_HEIGHT,
+      height: CHUNK_TOTAL_HEIGHT,
       traceX: traceX,
       traceY: traceY,
-      removedBlocks: removedBlocks,
-      meshId: meshId
+      seed: this.world.getSeed(),
+      type: ChunckMsgTypes.GEN_MESH,
+      blockData: JSON.stringify([...chunckBlockData]),
+      neigbourChuncks: JSON.stringify(nearChuncks.map(n => n && JSON.stringify([...n])))
     });
   }
 
-  onWorkerMessage(e: { data: ChunckGenData }) {
+  async onWorkerMessage(e: any) {
     const {
       positions,
       normals,
       indices,
       faceToKey,
       keyToFace,
-      blockData,
-      meshId
-    } = e.data;
+      key
+    } = e;
     if (
       !positions ||
       !normals ||
       !indices ||
       !faceToKey ||
       !keyToFace ||
-      !meshId
+      !key
     )
       return null;
 
-    const mesh = this.getNearChucks()?.find((c: any) => c?.uuid === meshId) as THREE.Mesh | undefined;
+    const mesh = this.world.getChunckMan().getChunckMeshMap().get(key) as THREE.Mesh | undefined;
     if (!mesh) return;
 
     const pos = JSON.parse(positions);
     const nor = JSON.parse(normals);
     const ind = JSON.parse(indices);
     const faceToKeyArray = JSON.parse(faceToKey);
-    const blockDataArray = JSON.parse(blockData);
 
     const newGeometry = new THREE.BufferGeometry();
     const positionNumComponents = 3;
@@ -249,38 +249,10 @@ export class Player {
       ]);
     }
 
-    const key = `${mesh.userData["traceX"]}${mesh.userData["traceY"]}`
-
-    const userData: ChunckUserData = {
-        faceToKey: new Map(faceToKeyArray),
-        remapFaceIndex: remapMeshIndex(originalIndexMap, reorderedIndexMap),
-        blockData: new Map(blockDataArray)
-    }
-    
-    this.world.saveChunck(userData);
-    this.world.getCollider().set(key, { bhv: bvh, matrix: mesh.matrixWorld })
-  }
-
-  getNearChucks() {
-    if (this.currentChunck) {
-      const currentTraceX = this.currentChunck.userData["traceX"];
-      const currentTraceY = this.currentChunck.userData["traceY"];
-      const cordsToVerify = [
-        `${currentTraceX}${currentTraceY}`,
-        `${currentTraceX + CHUNK_SIZE}${currentTraceY}`, 
-        `${currentTraceX + CHUNK_SIZE}${currentTraceY + CHUNK_SIZE}`, 
-        `${currentTraceX + CHUNK_SIZE}${currentTraceY - CHUNK_SIZE}`, 
-        `${currentTraceX - CHUNK_SIZE}${currentTraceY}`, 
-        `${currentTraceX - CHUNK_SIZE}${currentTraceY - CHUNK_SIZE}`, 
-        `${currentTraceX - CHUNK_SIZE}${currentTraceY + CHUNK_SIZE}`, 
-        `${currentTraceX}${currentTraceY + CHUNK_SIZE}`, 
-        `${currentTraceX}${currentTraceY - CHUNK_SIZE}`]
-
-
-      const 
-      
-      return cordsToVerify.map(c => this.world.getChunckMap().get(c));
-    }
+    mesh.userData.faceToKey = new Map(faceToKeyArray);
+    mesh.userData.remapFaceIndex =  remapMeshIndex(originalIndexMap, reorderedIndexMap);
+   
+    this.world.getChunckMan().setValueColliderMap(mesh.userData.key, { bhv: bvh, matrix: mesh.matrixWorld })
   }
 
   updatePlayerGround(delta: number) {
@@ -293,7 +265,7 @@ export class Player {
 
     if (intersectsDown.length > 0) {
       const mesh = intersectsDown[0].object as THREE.Mesh;
-      this.currentChunck = mesh;
+      this.currentChunckKey = { traceX: mesh.userData.traceX, traceY: mesh.userData.traceY };
 
       const obj = intersectsDown[0].point;
       if (!this.isJumping) {
@@ -307,7 +279,7 @@ export class Player {
 
         if (!this.checkCollision(testPosition)) {
           this.camera.position.y = testPosition.y;
-        } else {
+        1[pklljfd?>,MN1``]} else {
           this.isOnGround = true;
           this.fallingMultPlayer = 0;
           return;
@@ -383,31 +355,31 @@ export class Player {
   }
 
   private checkCollision(position: THREE.Vector3): boolean | undefined {
-    const min = new THREE.Vector3(
-      position.x - this.playerRadius,
-      position.y - this.playerHeight,
-      position.z - this.playerRadius
-    );
+    if (this.currentChunckKey) {
+      const min = new THREE.Vector3(
+        position.x - this.playerRadius,
+        position.y - this.playerHeight,
+        position.z - this.playerRadius
+      );
 
-    const max = new THREE.Vector3(
-      position.x + this.playerRadius,
-      position.y + 0.1,
-      position.z + this.playerRadius
-    );
+      const max = new THREE.Vector3(
+        position.x + this.playerRadius,
+        position.y + 0.1,
+        position.z + this.playerRadius
+      );
 
-    const playerBox = new THREE.Box3(min, max);
+      const playerBox = new THREE.Box3(min, max);
+   
+      const nearChuncks = this.world.getNearChuncksKeysCollider(this.currentChunckKey.traceX, this.currentChunckKey.traceY);
 
-    const colliders = this.getNearChucks()?.map(c => { 
-      const traceX = c?.userData["traceX"];
-      const traceY = c?.userData["traceY"];
-      const key = `${traceX}${traceY}`;   
-      return this.world.getCollider().get(key) 
-    }).filter(c => c != null);
+      const colliders = nearChuncks.map(k => this.world.getChunckMan().getChunckColliderMap().get(k)).filter(v => v != undefined);
+      
+      return colliders?.some((element) => {
+        if (!element.bhv) return false;
 
-    return colliders?.some((element) => {
-      if (!element.bhv) return false;
-
-      return (element.bhv as MeshBVH).intersectsBox(playerBox, element.matrix);
-    });
+        return (element.bhv as MeshBVH).intersectsBox(playerBox, element.matrix);
+      });
+    
+    }
   }
 }
