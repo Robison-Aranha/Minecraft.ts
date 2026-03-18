@@ -1,13 +1,11 @@
-import { ChunckMsgTypes } from "../../enums/ChunckMsgTypes";
-import { ChunckGen } from "../../world/ChunckGen";
+import { ChunckMsgTypes } from "../enums/ChunckMsgTypes";
+import { ChunckGen } from "../world/ChunckGen";
 
 
 self.onmessage = async (e) => { 
-    const { width, height, traceX, traceY, blockData, neigbourChuncks, seed, type } = e.data;
+    const {traceX, traceY, blockData, neigbourChuncks, seed, type, layer } = e.data;
 
-    const chunck = new ChunckGen({ 
-            width: width, 
-            height: height, 
+    const chunck = new ChunckGen({  
             traceX: traceX, 
             traceY: traceY,
             seed: seed,
@@ -16,7 +14,6 @@ self.onmessage = async (e) => {
     });
 
     let chunkData = {};
-
 
     switch(type) {
         case ChunckMsgTypes.GEN_BLOCK: {
@@ -33,12 +30,19 @@ self.onmessage = async (e) => {
 
             chunkData = { 
                 ...chunkData,
-                ...chunck.getMeshData()
+                ...chunck.getChunckMeshData(null)
             };
             break;
         };
         case ChunckMsgTypes.REM_BLOCK: {
-
+            chunck.removeBlock(layer)
+            
+            chunkData = {
+                ...chunkData,
+                layer,
+                ...chunck.getChunckMeshData(layer)
+            };
+            break;
         }
     }
 

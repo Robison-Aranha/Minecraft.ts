@@ -1,28 +1,22 @@
 import * as THREE from "three";
 import { BlockType } from "../enums/BlockType";
-import { MeshBVH } from "three-mesh-bvh";
-
-interface Collider {
-  matrix: THREE.Matrix4;
-  bhv: MeshBVH;
-}
+import { Collider } from "../interfaces/ChunckMan";
 
 export class ChunckMan {
 
     private chunckMeshMap: Map<string, THREE.Mesh[]> = new Map<string, THREE.Mesh[]>();
-    private chunckColliderMap: Map<string, Collider> = new Map<string, Collider>();
-    private chunckBlocksMap: Map<string, Map<string, BlockType>[]> = new  Map<string, Map<string, BlockType>[]>();
-
+    private chunckColliderMap: Map<string, Collider[]> = new Map<string, Collider[]>();
+    private chunckBlocksMap: Map<string, Uint8Array[]> = new Map<string, Uint8Array[]>();
 
     getChunckMeshMap(): ReadonlyMap<string, THREE.Mesh[]>  {
         return this.chunckMeshMap;
     }
 
-    getChunckColliderMap():  ReadonlyMap<string, Collider> {
+    getChunckColliderMap():  ReadonlyMap<string, Collider[]> {
         return this.chunckColliderMap;
     }
 
-    getChunckBlocksMap(): ReadonlyMap<string, Map<string, BlockType>[]> {
+    getChunckBlocksMap(): ReadonlyMap<string, Uint8Array[]> {
         return this.chunckBlocksMap;
     }
 
@@ -30,18 +24,21 @@ export class ChunckMan {
         this.chunckMeshMap.set(key, meshs);
     }
 
-    setValueBlocksMap(key: string, blockMaps: Map<string, BlockType>[]) {
-        this.chunckBlocksMap.set(key, blockMaps);
+    setValueBlocksMap(key: string, blockArrays: Uint8Array[]) {
+        this.chunckBlocksMap.set(key, blockArrays);
     }
 
-    setBlockValueInChunckBlocksMap(chunckKey: string, layer: number, blockKey: string, blockValue: BlockType) {
+    setBlockValueInChunckBlocksMap(chunckKey: string, layer: number, blockIndex: number, blockValue: BlockType) {
         const obj = this.chunckBlocksMap.get(chunckKey);
 
-        return obj ? obj[layer].set(blockKey, blockValue) : null
+        if (obj && obj[layer]) {
+            obj[layer][blockIndex] = blockValue;
+            return true;
+        }
+        return false;
     }
 
-    setValueColliderMap(key: string, collider: Collider) {
-        this.chunckColliderMap.set(key, collider)
+    setValueColliderMap(key: string, collider: Collider[]) {
+        this.chunckColliderMap.set(key, collider);
     }
-
 }

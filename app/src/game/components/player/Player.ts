@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { World } from "../world/World";
 import { MeshBVH } from "three-mesh-bvh";
-import { CHUNK_TOTAL_HEIGHT, CHUNK_SIZE } from "../const/const";
 import { remapMeshIndex } from "../utils/Utils";
-import { createWorker, WorkerPaths } from "../workers/worker-factory/WorkerFac";
+import { createWorker, WorkerPaths } from "../workers/WorkerFac";
 import { BlockType } from "../enums/BlockType";
 import { ChunckMsgTypes } from "../enums/ChunckMsgTypes";
+import { Collider } from "../interfaces/ChunckMan";
 
 interface Controls {
   moveForward: boolean;
@@ -152,13 +152,14 @@ export class Player {
     const traceX = chunkMesh.userData.traceX;
     const traceY = chunkMesh.userData.traceY;
     const chunckKey = `${traceX}:${traceY}`;
+    const layer = chunkMesh.userData.layerLevel;
 
     const nearChuncks = this.world.getNeighbourChuncks(traceX, traceY);
 
     const faceIndexOriginal = chunkMesh.userData.remapFaceIndex.get(faceIndex);
     const faceKey = chunkMesh.userData.faceToKey.get(faceIndexOriginal);
 
-    this.world.getChunckMan().setBlockValueInChunckBlocksMap(chunckKey, faceKey, BlockType.AIR)
+    this.world.getChunckMan().setBlockValueInChunckBlocksMap(chunckKey, layer, faceKey, BlockType.AIR)
 
     const chunckBlockData = this.world.getChunckMan().getChunckBlocksMap().get(chunckKey) ?? [];
 
@@ -168,43 +169,42 @@ export class Player {
     }
 
     worker.postMessage({
-      width: CHUNK_SIZE,
-      height: CHUNK_TOTAL_HEIGHT,
       traceX: traceX,
       traceY: traceY,
       seed: this.world.getSeed(),
-      type: ChunckMsgTypes.GEN_MESH,
-      blockData: JSON.stringify([...chunckBlockData]),
-      neigbourChuncks: JSON.stringify(nearChuncks.map(n => n && JSON.stringify([...n])))
+      type: ChunckMsgTypes.REM_BLOCK,
+      blockData: JSON.stringify(chunckBlockData.map(n => n && JSON.stringify([...n]))),
+      neigbourChuncks: JSON.stringify(nearChuncks.map(n => n?.map(c => JSON.stringify([...c])))),
+      layer: layer,
     });
   }
 
   async onWorkerMessage(e: any) {
     const {
-      positions,
-      normals,
-      indices,
       faceToKey,
       keyToFace,
+      layer,
+      layers,
       key
     } = e;
     if (
-      !positions ||
-      !normals ||
-      !indices ||
       !faceToKey ||
       !keyToFace ||
+      !layer ||
+      !layers ||
       !key
     )
       return null;
 
-    const mesh = this.world.getChunckMan().getChunckMeshMap().get(key) as THREE.Mesh | undefined;
-    if (!mesh) return;
+    const meshs = this.world.getChunckMan().getChunckMeshMap().get(key) as THREE.Mesh[] | undefined;
+    const colliders = this.world.getChunckMan().getChunckColliderMap().get(key) as Collider[] | undefined;
+    if (!meshs || !colliders) return;
 
-    const pos = JSON.parse(positions);
-    const nor = JSON.parse(normals);
-    const ind = JSON.parse(indices);
+    const mesh = meshs[layer]
+
+    const layersParsed = JSON.parse(layers)
     const faceToKeyArray = JSON.parse(faceToKey);
+    const keyToFaceArray = JSON.parse(keyToFace);
 
     const newGeometry = new THREE.BufferGeometry();
     const positionNumComponents = 3;
@@ -212,15 +212,15 @@ export class Player {
     newGeometry.setAttribute(
       "position",
       new THREE.BufferAttribute(
-        new Float32Array(pos),
+        new Float32Array(layersParsed.positions),
         positionNumComponents
       )
     );
     newGeometry.setAttribute(
       "normal",
-      new THREE.BufferAttribute(new Float32Array(nor), normalNumComponents)
+      new THREE.BufferAttribute(new Float32Array(layersParsed.normals), normalNumComponents)
     );
-    const newInd = new Uint32Array(ind);
+    const newInd = new Uint32Array(layersParsed.indices);
     newGeometry.setIndex(new THREE.BufferAttribute(newInd, 1));
 
     mesh.geometry = newGeometry;
@@ -251,8 +251,13 @@ export class Player {
 
     mesh.userData.faceToKey = new Map(faceToKeyArray);
     mesh.userData.remapFaceIndex =  remapMeshIndex(originalIndexMap, reorderedIndexMap);
-   
-    this.world.getChunckMan().setValueColliderMap(mesh.userData.key, { bhv: bvh, matrix: mesh.matrixWorld })
+    mesh.userData.keyToFace = new Map(keyToFaceArray);
+
+    colliders[layer] = { bhv: bvh, matrix: mesh.matrixWorld };
+    meshs[layer] = mesh;
+
+    this.world.getChunckMan().setValueMeshMap(key, meshs)
+    this.world.getChunckMan().setValueColliderMap(key, colliders)
   }
 
   updatePlayerGround(delta: number) {
@@ -279,7 +284,7 @@ export class Player {
 
         if (!this.checkCollision(testPosition)) {
           this.camera.position.y = testPosition.y;
-        1[pklljfd?>,MN1``]} else {
+        } else {
           this.isOnGround = true;
           this.fallingMultPlayer = 0;
           return;
@@ -332,7 +337,7 @@ export class Player {
     if (this.controls.moveRight) this.direction.add(right);
     if (this.controls.moveLeft) this.direction.sub(right);
     this.speed =
-      (this.controls.shift ? this.speedValue * 2 : this.speedValue) * delta;
+      (this.controls.shift ? this.speedValue * 1.5 : this.speedValue) * delta;
     this.direction.normalize().multiplyScalar(this.speed);
 
     const tempX = this.camera.position
@@ -374,12 +379,11 @@ export class Player {
 
       const colliders = nearChuncks.map(k => this.world.getChunckMan().getChunckColliderMap().get(k)).filter(v => v != undefined);
       
-      return colliders?.some((element) => {
+      return colliders?.some((a) => a.some(element => {
         if (!element.bhv) return false;
 
         return (element.bhv as MeshBVH).intersectsBox(playerBox, element.matrix);
-      });
-    
+      }));
     }
   }
 }

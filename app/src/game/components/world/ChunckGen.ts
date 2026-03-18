@@ -1,4 +1,4 @@
-import { CHUNK_LAYER_HEIGHT } from "../const/const";
+import { CHUNK_LAYER_HEIGHT, CHUNK_SIZE, CHUNK_TOTAL_HEIGHT } from "../const/Const";
 import { BlockType } from "../enums/BlockType";
 import { ChunckBlockGenData, ChunckLayer, ChunckMeshGenData } from "../interfaces/ChunckGenData";
 import { mulberry32 } from "../utils/Utils";
@@ -29,55 +29,45 @@ interface ChunckOptions {
   neigbourChuncks: string;
 }
 
-export class ChunckGen {
+const MAX_TRIANGLES_PER_BLOCK = 12;
 
-  private width: number;
-  private height: number;
+export class ChunckGen {
+  private width: number = CHUNK_SIZE;
+  private height: number = CHUNK_TOTAL_HEIGHT;
   private traceX: number;
   private traceY: number;
   private limitX: number;
   private limitY: number;
-
   private noise;
-  private neigbourChuncks: Array<Map<string, BlockType>>;
-
-  private blockData: Map<string, BlockType>;
-
-  private blockDataByLayer: Map<string, BlockType>[] = [];
-
-  private faceToKey: Map<string, string> = new Map();
-  private keyToFace: Map<string, string[]> = new Map();
-
+  private neigbourChuncks: Uint8Array[][];
+  private blockData: Uint8Array[];
+  private blockDataByLayer: Uint8Array[] = [];
+  private faceToBlock: Int32Array[] = [];
+  private blockToFace: Int32Array[] = [];
+  private blockFaceCounts: Uint8Array[] = [];
   private baseHeight = 200;
-
   private layers: ChunckLayer[] = [];
 
   private faces: FaceObj = {
-    left: { dir: [-1, 0, 0], corners: [[0,1,0],[0,0,0],[0,1,1],[0,0,1]] },
-    right: { dir: [1, 0, 0], corners: [[1,1,1],[1,0,1],[1,1,0],[1,0,0]] },
-    bottom: { dir: [0, -1, 0], corners: [[1,0,1],[0,0,1],[1,0,0],[0,0,0]] },
-    top: { dir: [0, 1, 0], corners: [[0,1,1],[1,1,1],[0,1,0],[1,1,0]] },
-    back: { dir: [0, 0, -1], corners: [[1,0,0],[0,0,0],[1,1,0],[0,1,0]] },
-    front: { dir: [0, 0, 1], corners: [[0,0,1],[1,0,1],[0,1,1],[1,1,1]] },
+    left: { dir: [-1, 0, 0], corners: [[0, 1, 0], [0, 0, 0], [0, 1, 1], [0, 0, 1]] },
+    right: { dir: [1, 0, 0], corners: [[1, 1, 1], [1, 0, 1], [1, 1, 0], [1, 0, 0]] },
+    bottom: { dir: [0, -1, 0], corners: [[1, 0, 1], [0, 0, 1], [1, 0, 0], [0, 0, 0]] },
+    top: { dir: [0, 1, 0], corners: [[0, 1, 1], [1, 1, 1], [0, 1, 0], [1, 1, 0]] },
+    back: { dir: [0, 0, -1], corners: [[1, 0, 0], [0, 0, 0], [1, 1, 0], [0, 1, 0]] },
+    front: { dir: [0, 0, 1], corners: [[0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]] },
   };
 
   constructor(options: ChunckOptions) {
-
-    this.width = options.width ?? 0;
-    this.height = options.height ?? 0;
     this.traceX = options.traceX ?? 0;
     this.traceY = options.traceY ?? 0;
-
     this.limitX = this.traceX >= 0 ? this.width + this.traceX : this.traceX + this.width;
     this.limitY = this.traceY >= 0 ? this.width + this.traceY : this.traceY + this.width;
 
-    const parsedArrayOfStringedMaps: string[] = JSON.parse(options.neigbourChuncks);
+    const parsedNeighbours: number[][][] = JSON.parse(options.neigbourChuncks);
+    this.neigbourChuncks = parsedNeighbours.map(n => n ? n.map(c => new Uint8Array(c)) : []);
 
-    this.neigbourChuncks = parsedArrayOfStringedMaps.map(n =>
-      n ? new Map<string, BlockType>(JSON.parse(n)) : new Map()
-    );
-
-    this.blockData = new Map(JSON.parse(options.blockData));
+    const parsedBlockData: number[][] = JSON.parse(options.blockData);
+    this.blockData = parsedBlockData.map(b => new Uint8Array(b));
 
     this.noise = createOctaveNoise2D({
       octaves: 4,
@@ -87,17 +77,31 @@ export class ChunckGen {
     }, createNoise2D(mulberry32(options.seed)));
 
     const totalLayers = Math.ceil(this.height / CHUNK_LAYER_HEIGHT);
+    const volumePerLayer = this.width * this.width * CHUNK_LAYER_HEIGHT;
 
     for (let i = 0; i < totalLayers; i++) {
-      this.layers.push({
-        positions: [],
-        normals: [],
-        indices: []
-      });
+      this.layers.push({ positions: [], normals: [], indices: [] });
+      this.blockDataByLayer.push(new Uint8Array(volumePerLayer));
 
-      // 🔥 cria blockData por layer
-      this.blockDataByLayer.push(new Map());
+      const maxTrianglesInLayer = volumePerLayer * MAX_TRIANGLES_PER_BLOCK;
+      this.faceToBlock.push(new Int32Array(maxTrianglesInLayer).fill(-1));
+      this.blockToFace.push(new Int32Array(maxTrianglesInLayer).fill(-1));
+      this.blockFaceCounts.push(new Uint8Array(volumePerLayer));
     }
+  }
+
+  private getIndex(x: number, y: number, z: number): number {
+    const localX = ((x % this.width) + this.width) % this.width;
+    const localY = ((y % this.width) + this.width) % this.width;
+    const localZ = ((z % CHUNK_LAYER_HEIGHT) + CHUNK_LAYER_HEIGHT) % CHUNK_LAYER_HEIGHT;
+    return localX + (localY * this.width) + (localZ * this.width * this.width);
+  }
+
+  private getCoordsFromIndex(index: number): { localX: number, localY: number, localZ: number } {
+    const localX = index % this.width;
+    const localY = Math.floor(index / this.width) % this.width;
+    const localZ = Math.floor(index / (this.width * this.width));
+    return { localX, localY, localZ };
   }
 
   private getLayerIndex(z: number): number {
@@ -108,132 +112,120 @@ export class ChunckGen {
     for (let x = this.traceX; x < this.limitX; x++) {
       for (let z = 0; z < this.height; z++) {
         for (let y = this.traceY; y < this.limitY; y++) {
-
-          const key = `${x},${z},${y}`;
+          const index = this.getIndex(x, y, z);
           const layerIndex = this.getLayerIndex(z);
-          const type = this.getBlock(x, z, y)
-            ? BlockType.STONE
-            : BlockType.AIR;
-
-          this.blockData.set(key, type);
-
-          // 🔥 salva também na layer
-          this.blockDataByLayer[layerIndex].set(key, type);
+          const type = this.getBlock(x, z, y) ? BlockType.STONE : BlockType.AIR;
+          this.blockDataByLayer[layerIndex][index] = type;
         }
       }
     }
   }
 
   generateChunckMesh() {
-    this.blockData.forEach((type, key) => {
-      if (type !== BlockType.AIR) {
-        const [x, z, y] = key.split(",");
-        this.getFaceToBlockDirection(
-          { x: Number(x), z: Number(z), y: Number(y) },
-          key
-        );
+    this.blockData.forEach((layerData, layer) => {
+      for (let index = 0; index < layerData.length; index++) {
+        const type = layerData[index];
+        if (type !== BlockType.AIR) {
+          const { localX, localY, localZ } = this.getCoordsFromIndex(index);
+          const x = localX + this.traceX;
+          const y = localY + this.traceY;
+          const z = localZ + (layer * CHUNK_LAYER_HEIGHT);
+          this.getFaceToBlockDirection({ x, z, y }, layer, index);
+        }
       }
     });
   }
 
   private getFaceToBlockDirection(
     location: { x: number; z: number; y: number },
-    keyMap: string
+    layer: number,
+    blockIndex: number
   ) {
-
-    const layerIndex = this.getLayerIndex(location.z);
-    const layer = this.layers[layerIndex];
-
-    const faceKeys: string[] = [];
+    const neigbourChuncksLayers = this.neigbourChuncks.map(l => l[layer]);
+    const meshLayer = this.layers[layer];
 
     for (const key of Object.keys(this.faces) as (keyof FaceObj)[]) {
-
       const { corners, dir } = this.faces[key];
-
       const nestX = location.x + dir[0];
       const nestZ = location.z + dir[1];
       const nestY = location.y + dir[2];
+      const neighborLayer = this.getLayerIndex(nestZ);
+      const neighborIndex = this.getIndex(nestX, nestY, nestZ);
 
-      const neighborKey = `${nestX},${nestZ},${nestY}`;
-
-      let neighborBlock = this.blockData.get(neighborKey)
+      let neighborBlock: number | undefined = BlockType.AIR;
+      
+      neighborBlock = [neighborLayer, neighborLayer + 1, neighborLayer - 1].map(l => this.blockData[l]?.[neighborIndex]).find(v => v !== undefined); 
 
       if (neighborBlock === undefined) {
-        neighborBlock = this.neigbourChuncks
-          .find(n => n.get(neighborKey) !== undefined)
-          ?.get(neighborKey);
+        neighborBlock = neigbourChuncksLayers
+          .find(n => n && n[neighborIndex] !== undefined)
+          ?.[neighborIndex];
       }
 
       const neighbor = neighborBlock !== BlockType.AIR;
 
       if (!neighbor) {
+        const ndx = meshLayer.positions.length / 3;
 
-        const ndx = layer.positions.length / 3;
-
-        layer.indices.push(
+        meshLayer.indices.push(
           ndx, ndx + 1, ndx + 2,
           ndx + 2, ndx + 1, ndx + 3
         );
 
         for (const pos of corners) {
-          layer.positions.push(
-            pos[0] + location.x,
-            pos[1] + location.z,
-            pos[2] + location.y
-          );
-          layer.normals.push(...dir);
+          meshLayer.positions.push(pos[0] + location.x, pos[1] + location.z, pos[2] + location.y);
+          meshLayer.normals.push(...dir);
         }
 
-        const faceIndex1 = `${layerIndex}:${layer.indices.length / 3 - 2}`;
-        const faceIndex2 = `${layerIndex}:${layer.indices.length / 3 - 1}`;
+        const triangle1 = (meshLayer.indices.length / 3) - 2;
+        const triangle2 = (meshLayer.indices.length / 3) - 1;
 
-        this.faceToKey.set(faceIndex1, keyMap);
-        this.faceToKey.set(faceIndex2, keyMap);
+        this.faceToBlock[layer][triangle1] = blockIndex;
+        this.faceToBlock[layer][triangle2] = blockIndex;
 
-        faceKeys.push(faceIndex1, faceIndex2);
+        let count = this.blockFaceCounts[layer][blockIndex];
+        const baseIndex = blockIndex * MAX_TRIANGLES_PER_BLOCK;
+
+        this.blockToFace[layer][baseIndex + count] = triangle1;
+        this.blockToFace[layer][baseIndex + count + 1] = triangle2;
+        
+        this.blockFaceCounts[layer][blockIndex] = count + 2;
       }
-    }
-
-    if (faceKeys.length > 0) {
-      this.keyToFace.set(keyMap, faceKeys);
     }
   }
 
-  getMeshData(): ChunckMeshGenData {
+  removeBlock(layer: number): void {
+    const layerData = this.blockData[layer];
+    if (!layerData) return;
 
-    const mergedPositions: number[] = [];
-    const mergedNormals: number[] = [];
-    const mergedIndices: number[] = [];
-
-    let vertexOffset = 0;
-
-    for (const layer of this.layers) {
-
-      mergedPositions.push(...layer.positions);
-      mergedNormals.push(...layer.normals);
-
-      for (const index of layer.indices) {
-        mergedIndices.push(index + vertexOffset);
+    for (let index = 0; index < layerData.length; index++) {
+      if (layerData[index] !== BlockType.AIR) {
+        const { localX, localY, localZ } = this.getCoordsFromIndex(index);
+        const x = localX + this.traceX;
+        const y = localY + this.traceY;
+        const z = localZ + (layer * CHUNK_LAYER_HEIGHT);
+        this.getFaceToBlockDirection({ x, z, y }, layer, index);
       }
-
-      vertexOffset += layer.positions.length / 3;
     }
+  }
 
+  getChunckMeshData(layer: number | null): ChunckMeshGenData {
     return {
-      positions: JSON.stringify(mergedPositions),
-      normals: JSON.stringify(mergedNormals),
-      indices: JSON.stringify(mergedIndices),
-      faceToKey: JSON.stringify([...this.faceToKey]),
-      keyToFace: JSON.stringify([...this.keyToFace]),
-      layers: JSON.stringify(this.layers)
+      faceToKey: layer 
+        ? JSON.stringify(Array.from(this.faceToBlock[layer])) 
+        : JSON.stringify(this.faceToBlock.map(f => Array.from(f))),
+      keyToFace: layer 
+        ? JSON.stringify(Array.from(this.blockToFace[layer])) 
+        : JSON.stringify(this.blockToFace.map(k => Array.from(k))),
+      layers: layer 
+        ? JSON.stringify(this.layers[layer]) 
+        : JSON.stringify(this.layers)
     };
   }
 
   getBlockData(): ChunckBlockGenData {
     return {
-      blocks: JSON.stringify(
-        this.blockDataByLayer.map(layer => [...layer])
-      )
+      blocks: JSON.stringify(this.blockDataByLayer.map(layer => Array.from(layer)))
     };
   }
 

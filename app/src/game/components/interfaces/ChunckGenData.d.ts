@@ -1,7 +1,4 @@
-export interface ChunckMeshGenData {
-  positions: string;        
-  normals: string;          
-  indices: string;        
+export interface ChunckMeshGenData {      
   faceToKey: string;       
   keyToFace: string;
   layers: string,

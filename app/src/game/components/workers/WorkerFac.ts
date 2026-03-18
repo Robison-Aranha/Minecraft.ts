@@ -1,4 +1,4 @@
-import ChunckGenerationWorker from "../src/ChunckGen.worker?worker";
+import ChunckGenerationWorker from "./ChunckGen.worker?worker";
 
 export const WorkerPaths = {
   CHUNCK_GENERATION: ChunckGenerationWorker,
