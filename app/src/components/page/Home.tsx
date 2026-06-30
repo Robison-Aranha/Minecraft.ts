@@ -1,17 +1,19 @@
 import { useEffect, useState } from "react";
+import Logo from "../../assets/logo.png";
 import { useUserGlobalState } from "../../globalState/GlobalState";
 import {
-  LoginRegister,
   ConfigGame,
-  Notification,
   Loading,
+  LoginRegister,
+  Notification,
 } from "../components";
-import Logo from "../../assets/logo.png";
 import Style from "./Home.module.css";
 
 export const Home: React.FC = () => {
   const { user } = useUserGlobalState();
-  const [isLogging, setIsLogging] = useState<boolean>(user.username !== null && user.username != "");
+  const [isLogging, setIsLogging] = useState<boolean>(
+    user.username !== null && user.username != "",
+  );
 
   useEffect(() => {
     setIsLogging(user.username !== null && user.username != "");

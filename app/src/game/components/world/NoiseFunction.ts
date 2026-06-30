@@ -7,20 +7,21 @@ type NoiseOptions = {
   scale: number;
 };
 
-export function createOctaveNoise2D(options: NoiseOptions, simplex: NoiseFunction2D) {
+export function createOctaveNoise2D(
+  options: NoiseOptions,
+  simplex: NoiseFunction2D,
+) {
   return (x: number, y: number): number => {
     let amplitude = 1;
     let frequency = 0.5;
     let noise = 0;
-    let maxValue = 0;
 
     for (let i = 0; i < options.octaves; i++) {
       noise +=
         simplex(
           (x * frequency) / options.scale,
-          (y * frequency) / options.scale
+          (y * frequency) / options.scale,
         ) * amplitude;
-      maxValue += amplitude;
 
       amplitude *= options.persistence;
       frequency *= options.lacunarity;

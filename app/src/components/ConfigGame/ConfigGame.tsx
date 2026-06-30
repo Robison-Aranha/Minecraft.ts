@@ -1,21 +1,17 @@
+import { useCallback, useEffect, useState } from "react";
+import MiniatureImage from "../../assets/minecraf_miniature.jpg";
 import {
-  useUserGlobalState,
-  useGlobalNotification,
   useGlobalDeleteModal,
   useGlobalEnterWorldModal,
   useGlobalLoading,
-  useGlobalWorld
+  useGlobalNotification,
+  useUserGlobalState,
 } from "../../globalState/GlobalState";
-import { Button } from "../components";
-import { useEffect, useState } from "react";
-import MiniatureImage from "../../assets/minecraf_miniature.jpg";
-import Style from "./ConfigGame.module.css";
-import { DeleteModal, EnterWorldModal } from "../components";
 import { WorldData } from "../../shared/interface";
-
+import { Button, DeleteModal, EnterWorldModal } from "../components";
+import Style from "./ConfigGame.module.css";
 
 const listWorldModes = ["SuperFlat", "Default"];
-
 const MAX_LENGHT_WORLD_NAME = 20;
 
 interface Data {
@@ -29,26 +25,31 @@ export const ConfigGame: React.FC = () => {
   const [worldToEnter, setWorldToEnter] = useState<WorldData>();
   const [data, setData] = useState<Data>({
     worldName: "",
-    worldType: "",
+    worldType: listWorldModes[listWorldModes.length - 1],
   });
   const [listationGames, setListationGames] = useState<WorldData[]>([]);
+
   const { showDeleteModal, setShowDeleteModal } = useGlobalDeleteModal();
   const { showEnterWorldModal, setShowEnterWorldModal } =
     useGlobalEnterWorldModal();
   const { setLoading } = useGlobalLoading();
   const { user, setUser } = useUserGlobalState();
   const { addNotificationMessage } = useGlobalNotification();
-  const { setWorldInfo } = useGlobalWorld()
+
+  const listWorldsService = useCallback(async () => {
+    setLoading(true);
+    try {
+      const worlds = await window.api.listWorlds(user.username);
+      setListationGames([...worlds]);
+    } catch {
+      addNotificationMessage({ message: "Error return user games!" });
+    }
+    setLoading(false);
+  }, [user.username, setLoading, addNotificationMessage]);
 
   useEffect(() => {
     listWorldsService();
-  }, []);
-
-  useEffect(() => {
-    if (worldToEnter && !showEnterWorldModal) {
-      setShowEnterWorldModal(true);
-    }
-  }, [worldToEnter]);
+  }, [listWorldsService]);
 
   useEffect(() => {
     if (!showEnterWorldModal) {
@@ -63,72 +64,52 @@ export const ConfigGame: React.FC = () => {
   }, [showDeleteModal]);
 
   useEffect(() => {
-    if (worldToDelete && !showDeleteModal) {
-      setShowDeleteModal(true);
-    }
-  }, [worldToDelete]);
-
-  useEffect(() => {
-    setData({ ...data, worldType: worldModes[worldModes.length - 1] });
+    setData((prev) => ({
+      ...prev,
+      worldType: worldModes[worldModes.length - 1],
+    }));
   }, [worldModes]);
 
   const handleChangeGameMode = () => {
-    worldModes.pop();
-    if (worldModes.length == 0) {
-      setWorldModes([...listWorldModes]);
-    } else {
-      setWorldModes([...worldModes]);
-    }
+    setWorldModes((prev) => {
+      const next = [...prev];
+      next.pop();
+      return next.length === 0 ? [...listWorldModes] : next;
+    });
   };
 
   const createWorldService = async () => {
     setLoading(true);
     try {
-
-      await window.api.createWorld(user.username, data.worldName, data.worldType);
-
-      listWorldsService();
-
-      setData({ ...data, worldName: "" });
-    } catch (error) {
+      await window.api.createWorld(
+        user.username,
+        data.worldName,
+        data.worldType,
+      );
+      await listWorldsService();
+      setData((prev) => ({ ...prev, worldName: "" }));
+    } catch {
       addNotificationMessage({ message: "Error creating World!" });
     }
     setLoading(false);
   };
 
-  const listWorldsService = async () => {
-    setLoading(true);
-    try {
-      const worlds = await window.api.listWorlds(user.username);
-
-      setListationGames([...worlds]);
-    } catch (error) {
-      addNotificationMessage({ message: "Error return user games!" });
-    }
-    setLoading(false);
-  };
-
   const handleCreateWorld = () => {
-    if (
-      data.worldName != "" &&
-      data.worldName != null &&
-      data.worldType != "" &&
-      data.worldType != null
-    ) {
+    if (data.worldName && data.worldType) {
       createWorldService();
     } else {
       addNotificationMessage({ message: "Invalid credentials!" });
     }
   };
 
-  const handlerValue = (event: any): void => {
+  const handlerValue = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { value, name } = event.target;
 
-    if (name == "worldName" && value.length > MAX_LENGHT_WORLD_NAME) {
+    if (name === "worldName" && value.length > MAX_LENGHT_WORLD_NAME) {
       return;
     }
 
-    setData({ ...data, [name]: value });
+    setData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleGoBack = () => {
@@ -137,23 +118,25 @@ export const ConfigGame: React.FC = () => {
     });
   };
 
+  const handleEnterWorld = (world: WorldData) => {
+    setWorldToEnter(world);
+    setShowEnterWorldModal(true);
+  };
+
+  const handleDeleteWorld = (world: WorldData) => {
+    setWorldToDelete(world);
+    setShowDeleteModal(true);
+  };
+
   return (
     <>
-      {worldToDelete ? (
+      {worldToDelete && (
         <DeleteModal
           world={worldToDelete}
           listWorldsService={listWorldsService}
         />
-      ) : (
-        ""
       )}
-      {worldToEnter ? (
-        <EnterWorldModal
-          world={worldToEnter}
-        />
-      ) : (
-        ""
-      )}
+      {worldToEnter && <EnterWorldModal world={worldToEnter} />}
       <div className={Style.container_config_game}>
         <div className={Style.container_config_game_configuration}>
           <span>World's name:</span>
@@ -167,7 +150,7 @@ export const ConfigGame: React.FC = () => {
           </Button>
         </div>
         <div className={Style.container_config_game_list_worlds}>
-          {listationGames?.map((e, key) => (
+          {listationGames.map((e, key) => (
             <div
               key={key}
               className={Style.container_config_game_list_worlds_component}
@@ -176,13 +159,17 @@ export const ConfigGame: React.FC = () => {
                 className={
                   Style.container_config_game_list_worlds_component_img
                 }
-                onClick={() => setWorldToEnter(e)}
+                onClick={() => handleEnterWorld(e)}
               >
                 <img
                   className={
                     Style.container_config_game_list_worlds_component_img_world
                   }
-                  src={(e.worldImage && e.worldImage != "") ? e.worldImage : MiniatureImage}
+                  src={
+                    e.worldImage && e.worldImage !== ""
+                      ? e.worldImage
+                      : MiniatureImage
+                  }
                 />
                 <span
                   className={
@@ -202,14 +189,13 @@ export const ConfigGame: React.FC = () => {
                     Style.container_config_game_list_worlds_component_text_world_name
                   }
                 >
-                  {" "}
-                  {e.worldName}{" "}
+                  {e.worldName}
                 </span>
-                <span id={Style.info_world}> Game mode {e.worldType} </span>
-                <span id={Style.info_world}> {e.worldCreatedDate} </span>
+                <span id={Style.info_world}>Game mode {e.worldType}</span>
+                <span id={Style.info_world}>{e.worldCreatedDate}</span>
               </div>
               <Button
-                onClick={() => setWorldToDelete(e)}
+                onClick={() => handleDeleteWorld(e)}
                 style={{ width: "25%", height: "40%" }}
               >
                 Delete
@@ -224,12 +210,10 @@ export const ConfigGame: React.FC = () => {
         </div>
         <div className={Style.container_config_game_action}>
           <Button onClick={handleGoBack} style={{ width: "45%" }}>
-            {" "}
-            Go Back{" "}
+            Go Back
           </Button>
           <Button onClick={handleCreateWorld} style={{ width: "45%" }}>
-            {" "}
-            Create World{" "}
+            Create World
           </Button>
         </div>
       </div>

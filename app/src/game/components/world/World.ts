@@ -1,23 +1,39 @@
 import * as THREE from "three";
 import { MeshBVH } from "three-mesh-bvh";
-import { ChunckBlockGenData, ChunckLayer, ChunckMeshGenData } from "../interfaces/ChunckGenData";
-import { CHUNK_SIZE } from "../const/Const";
-import { remapMeshIndex } from "../utils/Utils";
-import { ChunckUserData } from "../interfaces/ChunckUserData";
+import {
+  ChunkBlockGenData,
+  ChunkLayer,
+  ChunkMeshGenData,
+} from "../interfaces/ChunkGenData";
+import { getChunksKeysToRender, getNearChunksKeysGen, remapMeshIndex} from "../utils/Utils";
+import { ChunkUserData } from "../interfaces/ChunkUserData";
 import { createWorker } from "../workers/WorkerFac";
 import { WorkerPaths } from "../workers/WorkerFac";
-import { ChunckMsgTypes } from "../enums/ChunckMsgTypes";
-import { ChunckMan } from "./ChunckMan";
+import { ChunkMsgTypes } from "../enums/ChunkMsgTypes.ts";
+import { ChunkMan } from "./ChunkMan.ts";
+import {Player} from "../player/Player.ts";
+import {Vector3} from "three";
 
 export class World extends THREE.Group {
-  private chunckQt: number | null;
-  private material: THREE.MeshLambertMaterial = new THREE.MeshLambertMaterial({ color: "gray" });
+  private chunkQt: number | null;
+  private material: THREE.MeshLambertMaterial = new THREE.MeshLambertMaterial({
+    color: "gray",
+  });
   private seed: number | undefined;
-  private chunckMan = new ChunckMan();
+  private chunkMan = new ChunkMan();
+  private player: Player | undefined;
 
-  constructor(chunckQt: number) {
+  constructor(chunkQt: number) {
     super();
-    this.chunckQt = chunckQt;
+    this.chunkQt = chunkQt;
+  }
+
+  setPlayer(player: Player | undefined) {
+    this.player = player;
+  }
+
+  getPlayer() {
+    return this.player;
   }
 
   setSeed(seed: number) {
@@ -28,28 +44,33 @@ export class World extends THREE.Group {
     return this.seed;
   }
 
-  getChunckMan() {
-    return this.chunckMan;
+  getChunkMan() {
+    return this.chunkMan;
   }
 
-  generateChunck(
+  generateChunk(
     traceX: number,
     traceY: number,
-    type: ChunckMsgTypes
+    type: ChunkMsgTypes,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
-      const worker = createWorker(WorkerPaths.CHUNCK_GENERATION);
+      const worker = createWorker(WorkerPaths.CHUNK_GENERATION);
 
-      let neigbourChuncks: (Uint8Array[] | undefined)[] = [];
-      let currentChunck: Uint8Array[] = [];
+      let neighbourChunks: (Uint8Array[] | undefined)[] = [];
+      let currentChunk: Uint8Array[] = [];
 
-      if (type == ChunckMsgTypes.GEN_MESH) {
-        neigbourChuncks = this.getNeighbourChuncks(traceX, traceY);
-        currentChunck = this.chunckMan.getChunckBlocksMap().get(`${traceX}:${traceY}`) ?? [];
+      if (type == ChunkMsgTypes.GEN_MESH) {
+        neighbourChunks = this.getNeighbourChunks(traceX, traceY);
+        currentChunk =
+          this.chunkMan.getChunkBlocksMap().get(`${traceX}:${traceY}`) ?? [];
       }
 
-      const stringifiedCurrentChunk = JSON.stringify(currentChunck.map(layer => Array.from(layer)));
-      const stringifiedNeighbours = JSON.stringify(neigbourChuncks.map(n => n ? n.map(c => Array.from(c)) : []));
+      const stringifiedCurrentChunk = JSON.stringify(
+        currentChunk.map((layer) => Array.from(layer)),
+      );
+      const stringifiedNeigbours = JSON.stringify(
+          neighbourChunks.map((n) => (n ? n.map((c) => Array.from(c)) : [])),
+      );
 
       worker.postMessage({
         traceX,
@@ -57,55 +78,80 @@ export class World extends THREE.Group {
         seed: this.seed,
         type,
         blockData: stringifiedCurrentChunk,
-        neigbourChuncks: stringifiedNeighbours
+        neighbourChunks: stringifiedNeigbours,
       });
 
-      worker.onmessage = (event: any) => {
-        if (type === ChunckMsgTypes.GEN_BLOCK) {
-          this.callBackChunckBlock(event, traceX, traceY);
+      worker.onmessage = (event: unknown) => {
+        if (type === ChunkMsgTypes.GEN_BLOCK) {
+          this.callBackChunkBlock(
+            event as { data: ChunkBlockGenData },
+            traceX,
+            traceY,
+          );
         } else {
-          this.callBackChunckMesh(event, traceX, traceY);
+          this.callBackChunkMesh(
+            event as { data: ChunkMeshGenData },
+            traceX,
+            traceY,
+          );
         }
 
         worker.terminate();
         resolve();
       };
 
-      worker.onerror = (err: any) => {
+      worker.onerror = (err: unknown) => {
         worker.terminate();
         reject(err);
       };
     });
   }
 
-  getNeighbourChuncks(traceX: number, traceY: number): (Uint8Array[] | undefined)[] {
-    const chunckNeighbours = this.getNearChuncksKeysGen(traceX, traceY);
-    return chunckNeighbours.map(c => this.chunckMan.getChunckBlocksMap().get(c));
+  getNeighbourChunks(
+    traceX: number,
+    traceY: number,
+  ): (Uint8Array[] | undefined)[] {
+    const chunkNeighbours = getNearChunksKeysGen(traceX, traceY);
+    return chunkNeighbours.map((c) =>
+      this.chunkMan.getChunkBlocksMap().get(c),
+    );
   }
 
-  callBackChunckMesh(e: { data: ChunckMeshGenData }, traceX: number, traceY: number): void {
+  callBackChunkMesh(
+    e: { data: ChunkMeshGenData },
+    traceX: number,
+    traceY: number,
+  ): void {
     const { faceToKey, keyToFace, layers } = e.data;
 
     if (!layers || !faceToKey || !keyToFace) return;
 
     const keyToFaceArrayParsed = JSON.parse(keyToFace);
-    const typedKeyToFace = keyToFaceArrayParsed.map((arr: number[]) => new Int32Array(arr));
+    const typedKeyToFace = keyToFaceArrayParsed.map(
+      (arr: number[]) => new Int32Array(arr),
+    );
 
     const faceToKeyArrayParse = JSON.parse(faceToKey);
-    const typedFaceToKey = faceToKeyArrayParse.map((arr: number[]) => new Int32Array(arr));
+    const typedFaceToKey = faceToKeyArrayParse.map(
+      (arr: number[]) => new Int32Array(arr),
+    );
 
     const layersArray = JSON.parse(layers);
 
-    this.createChunck(
+    this.createChunk(
       traceX,
       traceY,
       typedFaceToKey,
       typedKeyToFace,
-      layersArray
+      layersArray,
     );
   }
 
-  callBackChunckBlock(e: { data: ChunckBlockGenData }, traceX: number, traceY: number): void {
+  callBackChunkBlock(
+    e: { data: ChunkBlockGenData },
+    traceX: number,
+    traceY: number,
+  ): void {
     const { blocks } = e.data;
     const key = `${traceX}:${traceY}`;
 
@@ -114,15 +160,15 @@ export class World extends THREE.Group {
     const parsedArrays = JSON.parse(blocks);
     const blockArrays = parsedArrays.map((a: number[]) => new Uint8Array(a));
 
-    this.chunckMan.setValueBlocksMap(key, blockArrays);
+    this.chunkMan.setValueBlocksMap(key, blockArrays);
   }
 
-  createChunck(
+  createChunk(
     traceX: number,
     traceY: number,
     faceToKey: Int32Array[],
     keyToFace: Int32Array[],
-    layers: ChunckLayer[]
+    layers: ChunkLayer[],
   ) {
     const positionNumComponents = 3;
     const normalNumComponents = 3;
@@ -137,15 +183,23 @@ export class World extends THREE.Group {
 
       geometry.setAttribute(
         "position",
-        new THREE.BufferAttribute(new Float32Array(layer.positions), positionNumComponents)
+        new THREE.BufferAttribute(
+          new Float32Array(layer.positions),
+          positionNumComponents,
+        ),
       );
 
       geometry.setAttribute(
         "normal",
-        new THREE.BufferAttribute(new Float32Array(layer.normals), normalNumComponents)
+        new THREE.BufferAttribute(
+          new Float32Array(layer.normals),
+          normalNumComponents,
+        ),
       );
 
-      geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(layer.indices), 1));
+      geometry.setIndex(
+        new THREE.BufferAttribute(new Uint32Array(layer.indices), 1),
+      );
 
       const indexAttr = geometry.getIndex()!;
       const originalIndexMap: number[][] = [];
@@ -160,6 +214,8 @@ export class World extends THREE.Group {
 
       const mesh = new THREE.Mesh(geometry, this.material);
 
+      const bvh = new MeshBVH(geometry);
+
       const newIndexAttr = geometry.getIndex()!;
       const reorderedIndexMap: number[][] = [];
 
@@ -173,7 +229,7 @@ export class World extends THREE.Group {
 
       const remap = remapMeshIndex(originalIndexMap, reorderedIndexMap);
 
-      const userData: ChunckUserData = {
+      const userData: ChunkUserData = {
         key: key,
         layerLevel: c,
         traceX: traceX,
@@ -181,12 +237,10 @@ export class World extends THREE.Group {
         faceToKey: faceToKey[c],
         keyToFace: keyToFace[c],
         remapFaceIndex: remap,
-        layers: layers
+        layers: layers,
       };
 
       mesh.userData = userData;
-
-      const bvh = new MeshBVH(geometry);
 
       bvhs.push({
         bhv: bvh,
@@ -196,67 +250,48 @@ export class World extends THREE.Group {
       layerMeshs.push(mesh);
     }
 
-    this.chunckMan.setValueMeshMap(key, layerMeshs);
-    this.chunckMan.setValueColliderMap(key, bvhs);
+    this.chunkMan.setValueMeshMap(key, layerMeshs);
+    this.chunkMan.setValueColliderMap(key, bvhs);
 
-    layerMeshs.forEach(l => this.add(l));
+    layerMeshs.forEach((l) => this.add(l));
   }
 
-  getNearChuncksKeysCollider(traceX: number, traceY: number) {
-    return [
-      `${traceX}:${traceY}`,
-      `${traceX + CHUNK_SIZE}:${traceY}`,
-      `${traceX + CHUNK_SIZE}:${traceY + CHUNK_SIZE}`,
-      `${traceX + CHUNK_SIZE}:${traceY - CHUNK_SIZE}`,
-      `${traceX - CHUNK_SIZE}:${traceY}`,
-      `${traceX - CHUNK_SIZE}:${traceY - CHUNK_SIZE}`,
-      `${traceX - CHUNK_SIZE}:${traceY + CHUNK_SIZE}`,
-      `${traceX}:${traceY + CHUNK_SIZE}`,
-      `${traceX}:${traceY - CHUNK_SIZE}`
-    ];
-  }
 
-  getNearChuncksKeysGen(traceX: number, traceY: number) {
-    return [
-      `${traceX + CHUNK_SIZE}:${traceY}`,
-      `${traceX - CHUNK_SIZE}:${traceY}`,
-      `${traceX}:${traceY + CHUNK_SIZE}`,
-      `${traceX}:${traceY - CHUNK_SIZE}`
-    ];
-  }
-
-  async generateWorld(type: ChunckMsgTypes) {
-    if (!this.chunckQt) return;
+  async generateWorld(type: ChunkMsgTypes, playerPosition: Vector3) {
+    if (!this.chunkQt) return;
 
     const promises: Promise<void>[] = [];
 
-    promises.push(
-      this.generateChunck(0, 0, type)
-    );
+    const chuncks = this.getChunksToGenerate(playerPosition);
 
-    for (let r = 1; r <= this.chunckQt; r++) {
-      const valueGen = r * CHUNK_SIZE;
+    if (chuncks?.innerKeys == null || chuncks?.borderKeys == null) return;
 
+    const keys = [...chuncks.borderKeys, ...chuncks.innerKeys];
+
+    console.log(keys)
+
+    keys.forEach(key => {
       promises.push(
-        this.generateChunck(valueGen, 0, type),
-        this.generateChunck(-valueGen, 0, type),
-        this.generateChunck(0, valueGen, type),
-        this.generateChunck(0, -valueGen, type)
-      );
-
-      for (let h = 1; h <= this.chunckQt; h++) {
-        const valuePre = h * CHUNK_SIZE;
-
-        promises.push(
-          this.generateChunck(valueGen, valuePre, type),
-          this.generateChunck(valueGen, -valuePre, type),
-          this.generateChunck(-valueGen, valuePre, type),
-          this.generateChunck(-valueGen, -valuePre, type)
-        );
-      }
-    }
+         this.generatePromise(key, type));
+    });
 
     await Promise.all(promises);
+  }
+
+  generatePromise(key: string, type: ChunkMsgTypes) {
+    const [x, y] = key.split(':');
+
+    return this.generateChunk(
+            Number(x),
+            Number(y),
+            type
+        );
+  }
+
+  getChunksToGenerate(playerLocation: Vector3) {
+    if (this.player == null || this.chunkQt == null) return;
+
+    return getChunksKeysToRender(playerLocation.x, playerLocation.y , this.chunkQt)
   }
 
   setupLights() {

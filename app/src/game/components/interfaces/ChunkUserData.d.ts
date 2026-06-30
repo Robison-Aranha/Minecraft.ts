@@ -1,4 +1,6 @@
-export interface ChunckUserData {
+import { ChunkLayer } from "./ChunkGenData";
+
+export interface ChunkUserData {
     key: string,
     layerLevel: number,
     traceX?: number;
@@ -6,5 +8,5 @@ export interface ChunckUserData {
     faceToKey: Int32Array<ArrayBufferLike>,
     keyToFace?: Int32Array<ArrayBufferLike>,
     remapFaceIndex: Map<number, number>,
-    layers: ChunckLayer[]
+    layers: ChunkLayer[],
 }

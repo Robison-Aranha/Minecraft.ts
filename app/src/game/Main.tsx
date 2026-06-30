@@ -11,9 +11,9 @@ const GameFunction: React.FC = () => {
 
   useEffect(() => {
     game.setSeed(hashStringToSeed(worldInfo.worldSeed))
-    game.setupGame(); 
-    game.setupWorld();
+    game.setupGame();
     game.setupPlayer();
+    game.setupWorld();
     if (useStats) {
       game.setUpStats();
     }

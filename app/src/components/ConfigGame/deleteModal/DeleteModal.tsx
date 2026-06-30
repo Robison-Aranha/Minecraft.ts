@@ -1,21 +1,21 @@
-import Style from "./DeleteModal.module.css";
 import {
-  useGlobalNotification,
   useGlobalDeleteModal,
   useGlobalLoading,
-  useUserGlobalState
+  useGlobalNotification,
+  useUserGlobalState,
 } from "../../../globalState/GlobalState";
-import { Button } from "../../components";
 import { WorldData } from "../../../shared/interface";
+import { Button } from "../../components";
+import Style from "./DeleteModal.module.css";
 
 interface ModalProps {
-  world: WorldData
+  world: WorldData;
   listWorldsService: () => void;
 }
 
 export const DeleteModal: React.FC<ModalProps> = ({
   world,
-  listWorldsService
+  listWorldsService,
 }) => {
   const { showDeleteModal, setShowDeleteModal } = useGlobalDeleteModal();
   const { setLoading } = useGlobalLoading();
@@ -25,14 +25,13 @@ export const DeleteModal: React.FC<ModalProps> = ({
   const deleteWorldService = async () => {
     setLoading(true);
     try {
-      
       await window.api.deleteWorld(user.username, world.worldName);
 
       listWorldsService();
 
       setShowDeleteModal(false);
       addNotificationMessage({ message: "World deleted successfully!" });
-    } catch (response) {
+    } catch {
       addNotificationMessage({ message: "Error deleting game!" });
     }
     setLoading(false);

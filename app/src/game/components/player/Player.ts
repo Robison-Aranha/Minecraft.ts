@@ -1,11 +1,25 @@
 import * as THREE from "three";
 import { World } from "../world/World";
 import { MeshBVH } from "three-mesh-bvh";
-import { remapMeshIndex } from "../utils/Utils";
+import {
+  chunksAfecteds,
+  getCoordsFromIndex,
+  getIndex,
+  getNearChunksKeysCollider,
+  remapMeshIndex,
+  getNearChunksKeysGen,
+  getLayerIndex,
+} from "../utils/Utils";
 import { createWorker, WorkerPaths } from "../workers/WorkerFac";
 import { BlockType } from "../enums/BlockType";
-import { ChunckMsgTypes } from "../enums/ChunckMsgTypes";
-import { Collider } from "../interfaces/ChunckMan";
+import { ChunkMsgTypes } from "../enums/ChunkMsgTypes.ts";
+import { Collider } from "../interfaces/ChunkMan";
+import { ChunkMeshGenDataWorker } from "../interfaces/ChunkWorker";
+import {
+  CHUNK_LAYER_HEIGHT,
+  CHUNK_SIZE,
+  CHUNK_TOTAL_HEIGHT,
+} from "../const/Const";
 
 interface Controls {
   moveForward: boolean;
@@ -38,7 +52,7 @@ export class Player {
   private fallingMultPlayer = 0;
   private actualJumpForce = this.jumpForce;
   private desaceleration = 0.2;
-  private currentChunckKey: { traceX: number, traceY: number } | null = null;
+  private currentChunkKey: { traceX: number; traceY: number } | null = null;
 
   private raycasterHeight: THREE.Raycaster = new THREE.Raycaster();
   private raycasterAction: THREE.Raycaster = new THREE.Raycaster();
@@ -50,7 +64,7 @@ export class Player {
       75,
       window.innerWidth / window.innerHeight,
       0.1,
-      1000
+      1000,
     );
   }
 
@@ -68,7 +82,7 @@ export class Player {
         const maxPitch = Math.PI / 2 - 0.1;
         this.camera.rotation.x = Math.max(
           -maxPitch,
-          Math.min(maxPitch, this.camera.rotation.x)
+          Math.min(maxPitch, this.camera.rotation.x),
         );
       }
     });
@@ -77,7 +91,7 @@ export class Player {
       document.body.requestPointerLock();
     });
 
-    this.camera.position.set(0, 300, 0);
+    this.camera.position.set(0, 300, 100);
   }
 
   setupControls() {
@@ -134,95 +148,234 @@ export class Player {
       this.raycasterAction.setFromCamera(mouse, this.camera);
       const intersects = this.raycasterAction.intersectObject(this.world);
       const hit = intersects[0];
-      const mesh = hit.object as THREE.Mesh;
 
-      switch (event.button) {
-        case 0:
-          this.removeBlock(hit.faceIndex, mesh);
-          break;
-        case 2:
-          break;
+      if (hit && hit.object) {
+        switch (event.button) {
+          case 0:
+            this.removeBlock(hit);
+            break;
+          case 2:
+            this.addBlock(hit);
+            break;
+        }
       }
     });
   }
 
-  async removeBlock(faceIndex: number | null | undefined, chunkMesh: THREE.Mesh) {
-    if (faceIndex == null || !chunkMesh) return;
+  async addBlock(hit: THREE.Intersection) {
+    if (!hit.face || hit.faceIndex == null || !hit.object) return;
 
+    const chunkMesh = hit.object as THREE.Mesh;
     const traceX = chunkMesh.userData.traceX;
     const traceY = chunkMesh.userData.traceY;
-    const chunckKey = `${traceX}:${traceY}`;
     const layer = chunkMesh.userData.layerLevel;
+    const faceIndexOriginal = chunkMesh.userData.remapFaceIndex.get(hit.faceIndex);
+    const faceKey = chunkMesh.userData.faceToKey[faceIndexOriginal];
 
-    const nearChuncks = this.world.getNeighbourChuncks(traceX, traceY);
+    const { localX, localY, localZ } = getCoordsFromIndex(faceKey, CHUNK_SIZE);
 
-    const faceIndexOriginal = chunkMesh.userData.remapFaceIndex.get(faceIndex);
-    const faceKey = chunkMesh.userData.faceToKey.get(faceIndexOriginal);
+    const normal = hit.face.normal;
+    const dx = Math.round(normal.x);
+    const dy = Math.round(normal.z);
+    const dz = Math.round(normal.y);
 
-    this.world.getChunckMan().setBlockValueInChunckBlocksMap(chunckKey, layer, faceKey, BlockType.AIR)
+    let newLocalX = localX + dx;
+    let newLocalY = localY + dy;
+    let newLocalZ = localZ + dz;
 
-    const chunckBlockData = this.world.getChunckMan().getChunckBlocksMap().get(chunckKey) ?? [];
+    let newTraceX = traceX;
+    let newTraceY = traceY;
+    let newLayer = layer;
 
-    const worker = createWorker(WorkerPaths.CHUNCK_GENERATION);
-    worker.onmessage = (e: any) => {
-      this.onWorkerMessage({ ...e.data, key: `${traceX}:${traceY}` })
+    if (newLocalX < 0) {
+      newLocalX += CHUNK_SIZE;
+      newTraceX -= CHUNK_SIZE;
+    } else if (newLocalX >= CHUNK_SIZE) {
+      newLocalX -= CHUNK_SIZE;
+      newTraceX += CHUNK_SIZE;
     }
 
-    worker.postMessage({
-      traceX: traceX,
-      traceY: traceY,
-      seed: this.world.getSeed(),
-      type: ChunckMsgTypes.REM_BLOCK,
-      blockData: JSON.stringify(chunckBlockData.map(n => n && JSON.stringify([...n]))),
-      neigbourChuncks: JSON.stringify(nearChuncks.map(n => n?.map(c => JSON.stringify([...c])))),
-      layer: layer,
-    });
+    if (newLocalY < 0) {
+      newLocalY += CHUNK_SIZE;
+      newTraceY -= CHUNK_SIZE;
+    } else if (newLocalY >= CHUNK_SIZE) {
+      newLocalY -= CHUNK_SIZE;
+      newTraceY += CHUNK_SIZE;
+    }
+
+    if (newLocalZ < 0) {
+      newLocalZ += CHUNK_LAYER_HEIGHT;
+      newLayer -= 1;
+    } else if (newLocalZ >= CHUNK_LAYER_HEIGHT) {
+      newLocalZ -= CHUNK_LAYER_HEIGHT;
+      newLayer += 1;
+    }
+
+    if (newLayer < 0 || newLayer * CHUNK_LAYER_HEIGHT >= CHUNK_TOTAL_HEIGHT) {
+      return;
+    }
+
+    const newChunkKey = `${newTraceX}:${newTraceY}`;
+    const newFaceKey = getIndex(newLocalX, newLocalY, newLocalZ, CHUNK_SIZE);
+
+    this.world
+        .getChunkMan()
+        .setBlockValueInChunkBlocksMap(newChunkKey, newLayer, newFaceKey, BlockType.STONE);
+
+    await this.updateChunksAndGenerateMeshes(newLocalX, newLocalY, newLocalZ, newTraceX, newTraceY, newLayer, newChunkKey);
   }
 
-  async onWorkerMessage(e: any) {
-    const {
-      faceToKey,
-      keyToFace,
-      layer,
-      layers,
-      key
-    } = e;
-    if (
-      !faceToKey ||
-      !keyToFace ||
-      !layer ||
-      !layers ||
-      !key
-    )
-      return null;
+  async removeBlock(hit: THREE.Intersection) {
+    if (!hit.face || hit.faceIndex == null || !hit.object) return;
 
-    const meshs = this.world.getChunckMan().getChunckMeshMap().get(key) as THREE.Mesh[] | undefined;
-    const colliders = this.world.getChunckMan().getChunckColliderMap().get(key) as Collider[] | undefined;
+    const chunkMesh = hit.object as THREE.Mesh;
+    const chunkKey = chunkMesh.userData.key;
+    const traceX = chunkMesh.userData.traceX;
+    const traceY = chunkMesh.userData.traceY;
+    const layer = chunkMesh.userData.layerLevel;
+    const faceIndexOriginal = chunkMesh.userData.remapFaceIndex.get(hit.faceIndex);
+    const faceKey = chunkMesh.userData.faceToKey[faceIndexOriginal];
+
+    const { localX, localY, localZ } = getCoordsFromIndex(faceKey, CHUNK_SIZE);
+
+    this.world
+        .getChunkMan()
+        .setBlockValueInChunkBlocksMap(chunkKey, layer, faceKey, BlockType.AIR);
+
+    await this.updateChunksAndGenerateMeshes(localX, localY, localZ, traceX, traceY, layer, chunkKey);
+  }
+
+  private async updateChunksAndGenerateMeshes(
+      localX: number,
+      localY: number,
+      localZ: number,
+      traceX: number,
+      traceY: number,
+      layer: number,
+      chunkKey: string
+  ) {
+    const directions = [
+      [-1, 0, 0],
+      [1, 0, 0],
+      [0, -1, 0],
+      [0, 1, 0],
+      [0, 0, -1],
+      [0, 0, 1],
+    ];
+
+    const limitX = traceX >= 0 ? CHUNK_SIZE + traceX : traceX + CHUNK_SIZE;
+    const limitY = traceY >= 0 ? CHUNK_SIZE + traceY : traceY + CHUNK_SIZE;
+    const neighborChunkMap = getNearChunksKeysGen(traceX, traceY);
+
+    const updates = new Map<string, Set<number>>();
+    updates.set(chunkKey, new Set([layer]));
+
+    for (const [dirX, dirY, dirZ] of directions) {
+      const nx = localX + dirX + traceX;
+      const ny = localY + dirY + traceY;
+      const nz = localZ + dirZ + layer * CHUNK_LAYER_HEIGHT;
+
+      const neighborLayer = getLayerIndex(nz);
+
+      const affected = chunksAfecteds(nx, ny, traceX, traceY, limitX, limitY);
+
+      const affectedChunk =
+          affected?.chunk != null ? neighborChunkMap[affected.chunk] : chunkKey;
+
+      if (!updates.has(affectedChunk)) {
+        updates.set(affectedChunk, new Set());
+      }
+
+      updates.get(affectedChunk)!.add(neighborLayer);
+    }
+
+    const tasks: Promise<ChunkMeshGenDataWorker>[] = [];
+
+    for (const [key, layers] of updates) {
+      const [chunkTraceX, chunkTraceY] = key.split(":").map(Number);
+      const nearChunks = this.world.getNeighbourChunks(chunkTraceX, chunkTraceY);
+      const chunkBlockData = this.world.getChunkMan().getChunkBlocksMap().get(key) ?? [];
+
+      for (const currentLayer of layers) {
+        tasks.push(
+            new Promise((resolve) => {
+              const worker = createWorker(WorkerPaths.CHUNK_GENERATION);
+
+              worker.onmessage = (e: { data: ChunkMeshGenDataWorker }) => {
+                worker.terminate();
+                resolve(e.data);
+              };
+
+              worker.postMessage({
+                traceX: chunkTraceX,
+                traceY: chunkTraceY,
+                seed: this.world.getSeed(),
+                type: ChunkMsgTypes.CHANGE_CHUNK,
+                blockData: JSON.stringify(
+                    chunkBlockData.map((layerData) => Array.from(layerData))
+                ),
+                neighbourChunks: JSON.stringify(
+                    nearChunks.map((n) => (n ? n.map((c) => Array.from(c)) : []))
+                ),
+                layer: currentLayer,
+              });
+            })
+        );
+      }
+    }
+
+    const generatedMeshesData = await Promise.all(tasks);
+
+    for (const meshData of generatedMeshesData) {
+      if (meshData) {
+        this.applyMeshUpdate(meshData);
+      }
+    }
+  }
+
+  applyMeshUpdate(e: ChunkMeshGenDataWorker) {
+    const { faceToKey, keyToFace, layer, layers, key } = e;
+    if (!faceToKey || !keyToFace || !layer || !layers || !key) return;
+
+    const meshs = this.world.getChunkMan().getChunkMeshMap().get(key) as
+      | THREE.Mesh[]
+      | undefined;
+    const colliders = this.world
+      .getChunkMan()
+      .getChunkColliderMap()
+      .get(key) as Collider[] | undefined;
+
     if (!meshs || !colliders) return;
 
-    const mesh = meshs[layer]
+    const mesh = meshs[layer];
 
-    const layersParsed = JSON.parse(layers)
+    const layersParsed = JSON.parse(layers);
     const faceToKeyArray = JSON.parse(faceToKey);
     const keyToFaceArray = JSON.parse(keyToFace);
 
     const newGeometry = new THREE.BufferGeometry();
     const positionNumComponents = 3;
     const normalNumComponents = 3;
+
     newGeometry.setAttribute(
       "position",
       new THREE.BufferAttribute(
         new Float32Array(layersParsed.positions),
-        positionNumComponents
-      )
+        positionNumComponents,
+      ),
     );
     newGeometry.setAttribute(
       "normal",
-      new THREE.BufferAttribute(new Float32Array(layersParsed.normals), normalNumComponents)
+      new THREE.BufferAttribute(
+        new Float32Array(layersParsed.normals),
+        normalNumComponents,
+      ),
     );
+
     const newInd = new Uint32Array(layersParsed.indices);
     newGeometry.setIndex(new THREE.BufferAttribute(newInd, 1));
 
+    if (mesh.geometry) mesh.geometry.dispose();
     mesh.geometry = newGeometry;
 
     const indexAttr = newGeometry.getIndex()!;
@@ -232,7 +385,7 @@ export class Player {
       originalIndexMap.push([
         indexAttr.getX(i),
         indexAttr.getX(i + 1),
-        indexAttr.getX(i + 2)
+        indexAttr.getX(i + 2),
       ]);
     }
 
@@ -245,19 +398,22 @@ export class Player {
       reorderedIndexMap.push([
         newIndexAttr.getX(i),
         newIndexAttr.getX(i + 1),
-        newIndexAttr.getX(i + 2)
+        newIndexAttr.getX(i + 2),
       ]);
     }
 
-    mesh.userData.faceToKey = new Map(faceToKeyArray);
-    mesh.userData.remapFaceIndex =  remapMeshIndex(originalIndexMap, reorderedIndexMap);
-    mesh.userData.keyToFace = new Map(keyToFaceArray);
+    mesh.userData.faceToKey = faceToKeyArray;
+    mesh.userData.remapFaceIndex = remapMeshIndex(
+      originalIndexMap,
+      reorderedIndexMap,
+    );
+    mesh.userData.keyToFace = keyToFaceArray;
 
     colliders[layer] = { bhv: bvh, matrix: mesh.matrixWorld };
     meshs[layer] = mesh;
 
-    this.world.getChunckMan().setValueMeshMap(key, meshs)
-    this.world.getChunckMan().setValueColliderMap(key, colliders)
+    this.world.getChunkMan().setValueMeshMap(key, meshs);
+    this.world.getChunkMan().setValueColliderMap(key, colliders);
   }
 
   updatePlayerGround(delta: number) {
@@ -265,12 +421,15 @@ export class Player {
     this.raycasterHeight.set(playerPos, new THREE.Vector3(0, -1, 0));
     const intersectsDown = this.raycasterHeight.intersectObject(
       this.world,
-      true
+      true,
     );
 
     if (intersectsDown.length > 0) {
       const mesh = intersectsDown[0].object as THREE.Mesh;
-      this.currentChunckKey = { traceX: mesh.userData.traceX, traceY: mesh.userData.traceY };
+      this.currentChunkKey = {
+        traceX: mesh.userData.traceX,
+        traceY: mesh.userData.traceY,
+      };
 
       const obj = intersectsDown[0].point;
       if (!this.isJumping) {
@@ -360,30 +519,40 @@ export class Player {
   }
 
   private checkCollision(position: THREE.Vector3): boolean | undefined {
-    if (this.currentChunckKey) {
+    if (this.currentChunkKey) {
       const min = new THREE.Vector3(
         position.x - this.playerRadius,
         position.y - this.playerHeight,
-        position.z - this.playerRadius
+        position.z - this.playerRadius,
       );
 
       const max = new THREE.Vector3(
         position.x + this.playerRadius,
         position.y + 0.1,
-        position.z + this.playerRadius
+        position.z + this.playerRadius,
       );
 
       const playerBox = new THREE.Box3(min, max);
-   
-      const nearChuncks = this.world.getNearChuncksKeysCollider(this.currentChunckKey.traceX, this.currentChunckKey.traceY);
 
-      const colliders = nearChuncks.map(k => this.world.getChunckMan().getChunckColliderMap().get(k)).filter(v => v != undefined);
-      
-      return colliders?.some((a) => a.some(element => {
-        if (!element.bhv) return false;
+      const nearChunks = getNearChunksKeysCollider(
+        this.currentChunkKey.traceX,
+        this.currentChunkKey.traceY,
+      );
 
-        return (element.bhv as MeshBVH).intersectsBox(playerBox, element.matrix);
-      }));
+      const colliders = nearChunks
+        .map((k) => this.world.getChunkMan().getChunkColliderMap().get(k))
+        .filter((v) => v != undefined);
+
+      return colliders?.some((a) =>
+        a.some((element) => {
+          if (!element.bhv) return false;
+
+          return (element.bhv as MeshBVH).intersectsBox(
+            playerBox,
+            element.matrix,
+          );
+        }),
+      );
     }
   }
 }

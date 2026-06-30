@@ -1,9 +1,11 @@
-import ChunckGenerationWorker from "./ChunckGen.worker?worker";
+import ChunkGenerationWorker from "./ChunkGen.worker.ts?worker";
 
 export const WorkerPaths = {
-  CHUNCK_GENERATION: ChunckGenerationWorker,
+  CHUNK_GENERATION: ChunkGenerationWorker,
 };
 
-export function createWorker(WorkerClass: any) {
+type WorkerConstructor = new () => Worker;
+
+export function createWorker(WorkerClass: WorkerConstructor): Worker {
   return new WorkerClass();
 }

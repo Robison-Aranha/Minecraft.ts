@@ -1,8 +1,8 @@
+import { useEffect, useState } from "react";
 import {
+  useGlobalNotification,
   useUserGlobalState,
-  useGlobalNotification 
 } from "../../globalState/GlobalState";
-import { useState, useEffect } from "react";
 import { Button } from "../components";
 import Style from "./LoginRegister.module.css";
 
@@ -14,26 +14,26 @@ export const LoginRegister: React.FC = () => {
   const { addNotificationMessage } = useGlobalNotification();
   const { setUser } = useUserGlobalState();
   const [data, setData] = useState<Data>({
-    username: ""
+    username: "",
   });
 
   useEffect(() => {
     setUser({
       username: "",
     });
-  }, []);
+  });
 
   const handleCommit = (): void => {
-     if (data.username == "" || data.username == null) {
+    if (data.username == "" || data.username == null) {
       addNotificationMessage({ message: "Invalid Credentials!" });
       return;
     }
     setUser({
-      username: data.username
+      username: data.username,
     });
   };
 
-  const handlerValue = (event: any): void => {
+  const handlerValue = (event: React.ChangeEvent<HTMLInputElement>): void => {
     const { value, name } = event.target;
     setData({ ...data, [name]: value });
   };
@@ -53,9 +53,7 @@ export const LoginRegister: React.FC = () => {
         </div>
         <div className={Style.container_bottom}>
           <div className={Style.container_bottom_action}>
-            <Button onClick={handleCommit}>
-              Jogar
-            </Button>
+            <Button onClick={handleCommit}>Jogar</Button>
           </div>
         </div>
       </div>

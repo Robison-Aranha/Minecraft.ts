@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { Player } from "./player/Player";
 import { World } from "./world/World";
 import Stats from "three/examples/jsm/libs/stats.module.js";
-import { ChunckMsgTypes } from "./enums/ChunckMsgTypes";
+import { ChunkMsgTypes } from "./enums/ChunkMsgTypes.ts";
 
 
 export class Game {
@@ -15,10 +15,11 @@ export class Game {
     private clock: THREE.Clock = new THREE.Clock();
     private seed: number | undefined;
 
-    constructor(chunckQt: number, ref: React.RefObject<HTMLDivElement | null>) {
+    constructor(chunkQt: number, ref: React.RefObject<HTMLDivElement | null>) {
         this.ref = ref;
-        this.world = new World(chunckQt);
+        this.world = new World(chunkQt);
         this.player = new Player(this.world);
+        this.world.setPlayer(this.player)
     }
 
     setSeed(seed: number) {
@@ -27,8 +28,10 @@ export class Game {
 
     async setupWorld() {
         this.world.setupLights();
-        await this.world.generateWorld(ChunckMsgTypes.GEN_BLOCK);
-        await this.world.generateWorld(ChunckMsgTypes.GEN_MESH);
+        const playerPosition = this.player.getCamera().position.clone()
+        console.log(playerPosition.x, playerPosition.y);
+        await this.world.generateWorld(ChunkMsgTypes.GEN_BLOCK, playerPosition);
+        await this.world.generateWorld(ChunkMsgTypes.GEN_MESH, playerPosition);
         if (this.seed) {
             this.world.setSeed(this.seed);
         }
