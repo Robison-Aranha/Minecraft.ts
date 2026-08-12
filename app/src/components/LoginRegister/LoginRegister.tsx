@@ -21,7 +21,7 @@ export const LoginRegister: React.FC = () => {
     setUser({
       username: "",
     });
-  });
+  }, []);
 
   const handleCommit = (): void => {
     if (data.username == "" || data.username == null) {

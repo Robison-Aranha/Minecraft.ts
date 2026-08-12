@@ -5,7 +5,7 @@ import { hashStringToSeed } from "./components/utils/Utils";
 
 const GameFunction: React.FC = () => {
   const mountRef = useRef<HTMLDivElement>(null);
-  const [game] = useState<Game>(new Game(3, mountRef));
+  const [game] = useState<Game>(new Game(1, mountRef));
   const [useStats] = useState<boolean>(true);
   const { worldInfo } = useGlobalWorld();
 

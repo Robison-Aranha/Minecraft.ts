@@ -12,4 +12,5 @@ interface ChunkLayer {
   positions: number[];
   normals: number[];
   indices: number[];
+  serializedBVH: any;
 }

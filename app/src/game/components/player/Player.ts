@@ -52,7 +52,7 @@ export class Player {
   private fallingMultPlayer = 0;
   private actualJumpForce = this.jumpForce;
   private desaceleration = 0.2;
-  private currentChunkKey: { traceX: number; traceY: number } | null = null;
+  public currentChunkKey: { traceX: number; traceY: number } | null = null;
 
   private raycasterHeight: THREE.Raycaster = new THREE.Raycaster();
   private raycasterAction: THREE.Raycaster = new THREE.Raycaster();
@@ -349,7 +349,7 @@ export class Player {
 
     const mesh = meshs[layer];
 
-    const layersParsed = JSON.parse(layers);
+    const layersParsed = layers;
     const faceToKeyArray = JSON.parse(faceToKey);
     const keyToFaceArray = JSON.parse(keyToFace);
 

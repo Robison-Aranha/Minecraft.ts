@@ -3,6 +3,7 @@ import { Player } from "./player/Player";
 import { World } from "./world/World";
 import Stats from "three/examples/jsm/libs/stats.module.js";
 import { ChunkMsgTypes } from "./enums/ChunkMsgTypes.ts";
+import { getNearChunksKeysGen } from "./utils/Utils.ts";
 
 
 export class Game {
@@ -14,6 +15,7 @@ export class Game {
     private renderer: THREE.WebGLRenderer = new THREE.WebGLRenderer();
     private clock: THREE.Clock = new THREE.Clock();
     private seed: number | undefined;
+    private generating = false;
 
     constructor(chunkQt: number, ref: React.RefObject<HTMLDivElement | null>) {
         this.ref = ref;
@@ -28,10 +30,6 @@ export class Game {
 
     async setupWorld() {
         this.world.setupLights();
-        const playerPosition = this.player.getCamera().position.clone()
-        console.log(playerPosition.x, playerPosition.y);
-        await this.world.generateWorld(ChunkMsgTypes.GEN_BLOCK, playerPosition);
-        await this.world.generateWorld(ChunkMsgTypes.GEN_MESH, playerPosition);
         if (this.seed) {
             this.world.setSeed(this.seed);
         }
@@ -57,7 +55,48 @@ export class Game {
             this.player.update(delta);
             this.renderer.render(this.scene, this.player.getCamera());
             this.stats?.update();
+            if (!this.generating) {
+                this.updateChunks();
+            }
         }
+    }
+
+   async updateChunks() {
+        this.generating = true;
+        const playerPosition = this.player.getCamera().position.clone();
+        const chunksToRender = this.world.getChunksToRender(playerPosition);
+        
+        if (chunksToRender && chunksToRender.length > 0) {
+            
+            const blocksToGenerate = new Set<string>(chunksToRender);
+            const meshesToGenerate = new Set<string>(chunksToRender);
+
+            for (const chunk of chunksToRender) {
+                const [x, y] = chunk.split(":").map(Number);
+                const neighbours = getNearChunksKeysGen(x, y);
+
+                for (const neighborKey of neighbours) {
+                    if (this.world.getChunkMan().getChunkBlocksMap().has(neighborKey)) {
+                        meshesToGenerate.add(neighborKey);
+                    } else {
+                        blocksToGenerate.add(neighborKey);
+                    }
+                }
+            }
+
+            const blocksArray = Array.from(blocksToGenerate);
+            if (blocksArray.length > 0) {
+                await this.world.generateWorld(ChunkMsgTypes.GEN_BLOCK, blocksArray);
+            }
+
+            for (const chunkKey of meshesToGenerate) {
+                await this.world.generateWorld(ChunkMsgTypes.GEN_MESH, [chunkKey]);
+
+                await new Promise(resolve => requestAnimationFrame(resolve));
+            }
+        }
+        
+        this.generating = false;
     }
 
     setUpStats() {

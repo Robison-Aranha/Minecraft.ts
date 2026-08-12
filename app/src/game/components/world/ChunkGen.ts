@@ -1,3 +1,5 @@
+import { BufferGeometry, BufferAttribute } from "three";
+import { MeshBVH } from "three-mesh-bvh";
 import {
   CHUNK_LAYER_HEIGHT,
   CHUNK_SIZE,
@@ -122,10 +124,8 @@ export class ChunkGen {
   constructor(options: ChunkOptions) {
     this.traceX = options.traceX ?? 0;
     this.traceY = options.traceY ?? 0;
-    this.limitX =
-      this.traceX >= 0 ? this.width + this.traceX : this.traceX + this.width;
-    this.limitY =
-      this.traceY >= 0 ? this.width + this.traceY : this.traceY + this.width;
+    this.limitX = this.traceX + this.width;
+    this.limitY = this.traceY + this.width;
 
     const parsedNeighbours: number[][][] = JSON.parse(options.neighbourChunks);
     this.neighbourChunks = parsedNeighbours.map((n) =>
@@ -158,7 +158,7 @@ export class ChunkGen {
 
       const layerVolume = this.width * this.width * currentLayerHeight;
 
-      this.layers.push({ positions: [], normals: [], indices: [] });
+      this.layers.push({ positions: [], normals: [], indices: [], serializedBVH: null });
 
       this.blockDataByLayer.push(new Uint8Array(layerVolume));
 
@@ -170,12 +170,15 @@ export class ChunkGen {
   }
 
   generateBlockChunk() {
-    for (let x = this.traceX; x < this.limitX; x++) {
-      for (let z = 0; z < this.height; z++) {
-        for (let y = this.traceY; y < this.limitY; y++) {
-          const index = getIndex(x, y, z, this.width);
-          const layerIndex = getLayerIndex(z);
-          const type = this.getBlock(x, z, y) ? BlockType.STONE : BlockType.AIR;
+    for (let localX = 0; localX < CHUNK_SIZE; localX++) {
+      for (let localZ = 0; localZ < this.height; localZ++) {
+        for (let localY = 0; localY < CHUNK_SIZE; localY++) {
+          const worldX = this.traceX + localX;
+          const worldY = this.traceY + localY;
+
+          const index = getIndex(localX, localY, localZ, this.width);
+          const layerIndex = getLayerIndex(localZ);
+          const type = this.getBlock(worldX, localZ, worldY) ? BlockType.STONE : BlockType.AIR;
           this.blockDataByLayer[layerIndex][index] = type;
         }
       }
@@ -196,8 +199,8 @@ export class ChunkGen {
 
       if (type !== BlockType.AIR) {
         const { localX, localY, localZ } = getCoordsFromIndex(
-            index,
-            this.width,
+          index,
+          this.width,
         );
 
         const x = localX + this.traceX;
@@ -240,7 +243,7 @@ export class ChunkGen {
       if (neighborRef) {
         neighborBlock =
           this.neighbourChunks[neighborRef.chunk]?.[neighborLayer]?.[
-            neighborIndex
+          neighborIndex
           ];
       } else {
         neighborBlock = this.blockData[neighborLayer]?.[neighborIndex];
@@ -284,7 +287,28 @@ export class ChunkGen {
     }
   }
 
-  getChunkMeshData(layer: number | null): ChunkMeshGenData {
+ getChunkMeshData(layer: number | null): any {
+    const processLayer = (l: ChunkLayer) => {
+      const geometry = new BufferGeometry();
+      geometry.setAttribute("position", new BufferAttribute(new Float32Array(l.positions), 3));
+      geometry.setAttribute("normal", new BufferAttribute(new Float32Array(l.normals), 3));
+      geometry.setIndex(new BufferAttribute(new Uint32Array(l.indices), 1));
+      
+      const bvh = new MeshBVH(geometry);
+      const serialized = MeshBVH.serialize(bvh, { cloneBuffers: false });
+      
+      return {
+        positions: l.positions,
+        normals: l.normals,
+        indices: l.indices,
+        serializedBVH: serialized
+      };
+    };
+
+    const processedLayers = layer !== null 
+      ? processLayer(this.layers[layer]) 
+      : this.layers.map(processLayer);
+
     return {
       faceToKey: layer
         ? JSON.stringify(Array.from(this.faceToBlock[layer]))
@@ -292,9 +316,7 @@ export class ChunkGen {
       keyToFace: layer
         ? JSON.stringify(Array.from(this.blockToFace[layer]))
         : JSON.stringify(this.blockToFace.map((k) => Array.from(k))),
-      layers: layer
-        ? JSON.stringify(this.layers[layer])
-        : JSON.stringify(this.layers),
+      layers: processedLayers,
     };
   }
 
