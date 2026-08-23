@@ -5,7 +5,7 @@ export interface ChunkMeshGenData {
 }
 
 export interface ChunkBlockGenData {
-  blocks: string;
+  blocks: any;
 }
 
 interface ChunkLayer {

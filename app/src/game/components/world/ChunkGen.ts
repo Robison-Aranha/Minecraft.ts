@@ -8,8 +8,7 @@ import {
 import { BlockType } from "../enums/BlockType";
 import {
   ChunkBlockGenData,
-  ChunkLayer,
-  ChunkMeshGenData,
+  ChunkLayer
 } from "../interfaces/ChunkGenData";
 import {
   mulberry32,
@@ -41,8 +40,8 @@ interface ChunkOptions {
   traceX?: number;
   traceY?: number;
   seed: number;
-  blockData: string;
-  neighbourChunks: string;
+  blockData: any;
+  neighbourChunks: any;
 }
 
 const MAX_TRIANGLES_PER_BLOCK = 12;
@@ -127,13 +126,11 @@ export class ChunkGen {
     this.limitX = this.traceX + this.width;
     this.limitY = this.traceY + this.width;
 
-    const parsedNeighbours: number[][][] = JSON.parse(options.neighbourChunks);
-    this.neighbourChunks = parsedNeighbours.map((n) =>
-      n ? n.map((c) => new Uint8Array(c)) : [],
+    this.neighbourChunks = options.neighbourChunks.map((n: any) =>
+      n ? n.map((c: any) => new Uint8Array(c)) : [],
     );
 
-    const parsedBlockData: number[][] = JSON.parse(options.blockData);
-    this.blockData = parsedBlockData.map((b) => new Uint8Array(b));
+    this.blockData = options.blockData.map((b: any) => new Uint8Array(b));
 
     this.noise = createOctaveNoise2D(
       {
@@ -287,16 +284,16 @@ export class ChunkGen {
     }
   }
 
- getChunkMeshData(layer: number | null): any {
+  getChunkMeshData(layer: number | null): any {
     const processLayer = (l: ChunkLayer) => {
       const geometry = new BufferGeometry();
       geometry.setAttribute("position", new BufferAttribute(new Float32Array(l.positions), 3));
       geometry.setAttribute("normal", new BufferAttribute(new Float32Array(l.normals), 3));
       geometry.setIndex(new BufferAttribute(new Uint32Array(l.indices), 1));
-      
+
       const bvh = new MeshBVH(geometry);
       const serialized = MeshBVH.serialize(bvh, { cloneBuffers: false });
-      
+
       return {
         positions: l.positions,
         normals: l.normals,
@@ -305,31 +302,29 @@ export class ChunkGen {
       };
     };
 
-    const processedLayers = layer !== null 
-      ? processLayer(this.layers[layer]) 
+    const processedLayers = layer !== null
+      ? processLayer(this.layers[layer])
       : this.layers.map(processLayer);
 
     return {
       faceToKey: layer
-        ? JSON.stringify(Array.from(this.faceToBlock[layer]))
-        : JSON.stringify(this.faceToBlock.map((f) => Array.from(f))),
+        ? this.faceToBlock[layer].buffer
+        : this.faceToBlock.map((f) => f.buffer),
       keyToFace: layer
-        ? JSON.stringify(Array.from(this.blockToFace[layer]))
-        : JSON.stringify(this.blockToFace.map((k) => Array.from(k))),
+        ? this.blockToFace[layer].buffer
+        : this.blockToFace.map((k) => k.buffer),
       layers: processedLayers,
     };
   }
 
   getBlockData(): ChunkBlockGenData {
     return {
-      blocks: JSON.stringify(
-        this.blockDataByLayer.map((layer) => Array.from(layer)),
-      ),
+      blocks: this.blockDataByLayer.map((layer) => layer.buffer)
     };
   }
 
   getBlock(x: number, z: number, y: number): boolean {
-    const surface = this.baseHeight + this.noise(x, y) * 35;
+    const surface = this.baseHeight + this.noise(x, y) * 15;
     return z < surface;
   }
 }

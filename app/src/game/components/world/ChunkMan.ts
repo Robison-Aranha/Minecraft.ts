@@ -41,4 +41,10 @@ export class ChunkMan {
     setValueColliderMap(key: string, collider: Collider[]) {
         this.chunkColliderMap.set(key, collider);
     }
+
+    deleteValueChunkMan(key: string) {
+        this.chunkBlocksMap.delete(key);
+        this.chunkMeshMap.delete(key);
+        this.chunkColliderMap.delete(key);
+    }
 }

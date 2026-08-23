@@ -5,10 +5,10 @@ import {
   chunksAfecteds,
   getCoordsFromIndex,
   getIndex,
-  getNearChunksKeysCollider,
   remapMeshIndex,
   getNearChunksKeysGen,
   getLayerIndex,
+  getAroundChunksKeys,
 } from "../utils/Utils";
 import { createWorker, WorkerPaths } from "../workers/WorkerFac";
 import { BlockType } from "../enums/BlockType";
@@ -39,7 +39,6 @@ export class Player {
     moveRight: false,
     shift: false,
   };
-
   private playerHeight = 1.8;
   private playerRadius = 0.2;
   private speedValue = 0.07;
@@ -61,7 +60,7 @@ export class Player {
   constructor(world: World) {
     this.world = world;
     this.camera = new THREE.PerspectiveCamera(
-      75,
+      70,
       window.innerWidth / window.innerHeight,
       0.1,
       1000,
@@ -219,8 +218,8 @@ export class Player {
     const newFaceKey = getIndex(newLocalX, newLocalY, newLocalZ, CHUNK_SIZE);
 
     this.world
-        .getChunkMan()
-        .setBlockValueInChunkBlocksMap(newChunkKey, newLayer, newFaceKey, BlockType.STONE);
+      .getChunkMan()
+      .setBlockValueInChunkBlocksMap(newChunkKey, newLayer, newFaceKey, BlockType.STONE);
 
     await this.updateChunksAndGenerateMeshes(newLocalX, newLocalY, newLocalZ, newTraceX, newTraceY, newLayer, newChunkKey);
   }
@@ -237,22 +236,22 @@ export class Player {
     const faceKey = chunkMesh.userData.faceToKey[faceIndexOriginal];
 
     const { localX, localY, localZ } = getCoordsFromIndex(faceKey, CHUNK_SIZE);
-
+    
     this.world
-        .getChunkMan()
-        .setBlockValueInChunkBlocksMap(chunkKey, layer, faceKey, BlockType.AIR);
+      .getChunkMan()
+      .setBlockValueInChunkBlocksMap(chunkKey, layer, faceKey, BlockType.AIR);
 
     await this.updateChunksAndGenerateMeshes(localX, localY, localZ, traceX, traceY, layer, chunkKey);
   }
 
   private async updateChunksAndGenerateMeshes(
-      localX: number,
-      localY: number,
-      localZ: number,
-      traceX: number,
-      traceY: number,
-      layer: number,
-      chunkKey: string
+    localX: number,
+    localY: number,
+    localZ: number,
+    traceX: number,
+    traceY: number,
+    layer: number,
+    chunkKey: string
   ) {
     const directions = [
       [-1, 0, 0],
@@ -280,16 +279,17 @@ export class Player {
       const affected = chunksAfecteds(nx, ny, traceX, traceY, limitX, limitY);
 
       const affectedChunk =
-          affected?.chunk != null ? neighborChunkMap[affected.chunk] : chunkKey;
+        affected?.chunk != null ? neighborChunkMap[affected.chunk] : chunkKey;
 
       if (!updates.has(affectedChunk)) {
         updates.set(affectedChunk, new Set());
       }
-
+  
       updates.get(affectedChunk)!.add(neighborLayer);
     }
 
     const tasks: Promise<ChunkMeshGenDataWorker>[] = [];
+
 
     for (const [key, layers] of updates) {
       const [chunkTraceX, chunkTraceY] = key.split(":").map(Number);
@@ -298,28 +298,24 @@ export class Player {
 
       for (const currentLayer of layers) {
         tasks.push(
-            new Promise((resolve) => {
-              const worker = createWorker(WorkerPaths.CHUNK_GENERATION);
+          new Promise((resolve) => {
+            const worker = createWorker(WorkerPaths.CHUNK_GENERATION);
 
-              worker.onmessage = (e: { data: ChunkMeshGenDataWorker }) => {
-                worker.terminate();
-                resolve(e.data);
-              };
+            worker.onmessage = (e: { data: ChunkMeshGenDataWorker }) => {
+              worker.terminate();
+              resolve(e.data);
+            };
 
-              worker.postMessage({
-                traceX: chunkTraceX,
-                traceY: chunkTraceY,
-                seed: this.world.getSeed(),
-                type: ChunkMsgTypes.CHANGE_CHUNK,
-                blockData: JSON.stringify(
-                    chunkBlockData.map((layerData) => Array.from(layerData))
-                ),
-                neighbourChunks: JSON.stringify(
-                    nearChunks.map((n) => (n ? n.map((c) => Array.from(c)) : []))
-                ),
-                layer: currentLayer,
-              });
-            })
+            worker.postMessage({
+              traceX: chunkTraceX,
+              traceY: chunkTraceY,
+              seed: this.world.getSeed(),
+              type: ChunkMsgTypes.CHANGE_CHUNK,
+              blockData: chunkBlockData.map((layerData) => layerData.buffer),
+              neighbourChunks: nearChunks.map((n) => (n ? n.map((c) => c.buffer) : [])),
+              layer: currentLayer,
+            });
+          })
         );
       }
     }
@@ -350,8 +346,6 @@ export class Player {
     const mesh = meshs[layer];
 
     const layersParsed = layers;
-    const faceToKeyArray = JSON.parse(faceToKey);
-    const keyToFaceArray = JSON.parse(keyToFace);
 
     const newGeometry = new THREE.BufferGeometry();
     const positionNumComponents = 3;
@@ -402,12 +396,12 @@ export class Player {
       ]);
     }
 
-    mesh.userData.faceToKey = faceToKeyArray;
+    mesh.userData.faceToKey = new Int32Array(faceToKey);
     mesh.userData.remapFaceIndex = remapMeshIndex(
       originalIndexMap,
       reorderedIndexMap,
     );
-    mesh.userData.keyToFace = keyToFaceArray;
+    mesh.userData.keyToFace = new Int32Array(keyToFace);
 
     colliders[layer] = { bhv: bvh, matrix: mesh.matrixWorld };
     meshs[layer] = mesh;
@@ -534,7 +528,7 @@ export class Player {
 
       const playerBox = new THREE.Box3(min, max);
 
-      const nearChunks = getNearChunksKeysCollider(
+      const nearChunks = getAroundChunksKeys(
         this.currentChunkKey.traceX,
         this.currentChunkKey.traceY,
       );

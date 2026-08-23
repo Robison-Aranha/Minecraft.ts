@@ -1,6 +1,6 @@
 export interface ChunkMeshGenDataWorker {
-  faceToKey: string;
-  keyToFace: string;
+  faceToKey: ArrayBuffer;
+  keyToFace: ArrayBuffer;
   layers: any;
   layer: number;
   key: ?string;

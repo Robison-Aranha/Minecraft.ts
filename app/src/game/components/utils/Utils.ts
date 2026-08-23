@@ -41,7 +41,18 @@ export function mulberry32(seed: number) {
   };
 }
 
- export function getNearChunksKeysCollider(traceX: number, traceY: number) {
+export function hashUint8Array(data: Uint8Array): number {
+    let hash = 2166136261;
+
+    for (let i = 0; i < data.length; i++) {
+        hash ^= data[i];
+        hash = Math.imul(hash, 16777619);
+    }
+
+    return hash >>> 0;
+}
+
+ export function getAroundChunksKeys(traceX: number, traceY: number) {
     return [
       `${traceX}:${traceY}`,
       `${traceX + CHUNK_SIZE}:${traceY}`,
@@ -72,8 +83,8 @@ export function getChunksKeysToRender(
   const borderKeys: string[] = [];
   const innerKeys: string[] = [];
 
-  for (let x = -chunkQt; x <= chunkQt; x++) {
-    for (let y = -chunkQt; y <= chunkQt; y++) {
+  for (let x = -chunkQt; x < chunkQt; x++) {
+    for (let y = -chunkQt; y < chunkQt; y++) {
       const worldX = traceX + x * CHUNK_SIZE;
       const worldY = traceY + y * CHUNK_SIZE;
 
