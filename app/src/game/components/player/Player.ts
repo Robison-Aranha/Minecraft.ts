@@ -63,7 +63,7 @@ export class Player {
       70,
       window.innerWidth / window.innerHeight,
       0.1,
-      1000,
+      10000,
     );
   }
 
@@ -168,7 +168,9 @@ export class Player {
     const traceX = chunkMesh.userData.traceX;
     const traceY = chunkMesh.userData.traceY;
     const layer = chunkMesh.userData.layerLevel;
-    const faceIndexOriginal = chunkMesh.userData.remapFaceIndex.get(hit.faceIndex);
+    const faceIndexOriginal = chunkMesh.userData.remapFaceIndex.get(
+      hit.faceIndex,
+    );
     const faceKey = chunkMesh.userData.faceToKey[faceIndexOriginal];
 
     const { localX, localY, localZ } = getCoordsFromIndex(faceKey, CHUNK_SIZE);
@@ -219,9 +221,22 @@ export class Player {
 
     this.world
       .getChunkMan()
-      .setBlockValueInChunkBlocksMap(newChunkKey, newLayer, newFaceKey, BlockType.STONE);
+      .setBlockValueInChunkBlocksMap(
+        newChunkKey,
+        newLayer,
+        newFaceKey,
+        BlockType.STONE,
+      );
 
-    await this.updateChunksAndGenerateMeshes(newLocalX, newLocalY, newLocalZ, newTraceX, newTraceY, newLayer, newChunkKey);
+    await this.updateChunksAndGenerateMeshes(
+      newLocalX,
+      newLocalY,
+      newLocalZ,
+      newTraceX,
+      newTraceY,
+      newLayer,
+      newChunkKey,
+    );
   }
 
   async removeBlock(hit: THREE.Intersection) {
@@ -232,16 +247,26 @@ export class Player {
     const traceX = chunkMesh.userData.traceX;
     const traceY = chunkMesh.userData.traceY;
     const layer = chunkMesh.userData.layerLevel;
-    const faceIndexOriginal = chunkMesh.userData.remapFaceIndex.get(hit.faceIndex);
+    const faceIndexOriginal = chunkMesh.userData.remapFaceIndex.get(
+      hit.faceIndex,
+    );
     const faceKey = chunkMesh.userData.faceToKey[faceIndexOriginal];
 
     const { localX, localY, localZ } = getCoordsFromIndex(faceKey, CHUNK_SIZE);
-    
+
     this.world
       .getChunkMan()
       .setBlockValueInChunkBlocksMap(chunkKey, layer, faceKey, BlockType.AIR);
 
-    await this.updateChunksAndGenerateMeshes(localX, localY, localZ, traceX, traceY, layer, chunkKey);
+    await this.updateChunksAndGenerateMeshes(
+      localX,
+      localY,
+      localZ,
+      traceX,
+      traceY,
+      layer,
+      chunkKey,
+    );
   }
 
   private async updateChunksAndGenerateMeshes(
@@ -251,7 +276,7 @@ export class Player {
     traceX: number,
     traceY: number,
     layer: number,
-    chunkKey: string
+    chunkKey: string,
   ) {
     const directions = [
       [-1, 0, 0],
@@ -284,17 +309,20 @@ export class Player {
       if (!updates.has(affectedChunk)) {
         updates.set(affectedChunk, new Set());
       }
-  
+
       updates.get(affectedChunk)!.add(neighborLayer);
     }
 
     const tasks: Promise<ChunkMeshGenDataWorker>[] = [];
 
-
     for (const [key, layers] of updates) {
       const [chunkTraceX, chunkTraceY] = key.split(":").map(Number);
-      const nearChunks = this.world.getNeighbourChunks(chunkTraceX, chunkTraceY);
-      const chunkBlockData = this.world.getChunkMan().getChunkBlocksMap().get(key) ?? [];
+      const nearChunks = this.world.getNeighbourChunks(
+        chunkTraceX,
+        chunkTraceY,
+      );
+      const chunkBlockData =
+        this.world.getChunkMan().getChunkBlocksMap().get(key) ?? [];
 
       for (const currentLayer of layers) {
         tasks.push(
@@ -312,10 +340,12 @@ export class Player {
               seed: this.world.getSeed(),
               type: ChunkMsgTypes.CHANGE_CHUNK,
               blockData: chunkBlockData.map((layerData) => layerData.buffer),
-              neighbourChunks: nearChunks.map((n) => (n ? n.map((c) => c.buffer) : [])),
+              neighbourChunks: nearChunks.map((n) =>
+                n ? n.map((c) => c.buffer) : [],
+              ),
               layer: currentLayer,
             });
-          })
+          }),
         );
       }
     }

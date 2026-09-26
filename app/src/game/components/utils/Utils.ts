@@ -3,24 +3,24 @@ import { CHUNK_LAYER_HEIGHT, CHUNK_SIZE } from "../const/Const";
 export const remapMeshIndex = (originalIndexMap: number[][], reorderedIndexMap: number[][]) => {
   const remap = new Map<number, number>();
 
-    for (let newId = 0; newId < reorderedIndexMap.length; newId++) {
-      const triNew = reorderedIndexMap[newId];
+  for (let newId = 0; newId < reorderedIndexMap.length; newId++) {
+    const triNew = reorderedIndexMap[newId];
 
-      for (let oldId = 0; oldId < originalIndexMap.length; oldId++) {
-        const triOld = originalIndexMap[oldId];
+    for (let oldId = 0; oldId < originalIndexMap.length; oldId++) {
+      const triOld = originalIndexMap[oldId];
 
-        if (
-          triNew[0] === triOld[0] &&
-          triNew[1] === triOld[1] &&
-          triNew[2] === triOld[2]
-        ) {
-          remap.set(newId, oldId);
-          break;
-        }
+      if (
+        triNew[0] === triOld[0] &&
+        triNew[1] === triOld[1] &&
+        triNew[2] === triOld[2]
+      ) {
+        remap.set(newId, oldId);
+        break;
       }
     }
+  }
 
-    return remap;
+  return remap;
 }
 
 export function hashStringToSeed(str: string) {
@@ -42,57 +42,58 @@ export function mulberry32(seed: number) {
 }
 
 export function hashUint8Array(data: Uint8Array): number {
-    let hash = 2166136261;
+  let hash = 2166136261;
 
-    for (let i = 0; i < data.length; i++) {
-        hash ^= data[i];
-        hash = Math.imul(hash, 16777619);
-    }
+  for (let i = 0; i < data.length; i++) {
+    hash ^= data[i];
+    hash = Math.imul(hash, 16777619);
+  }
 
-    return hash >>> 0;
+  return hash >>> 0;
 }
 
- export function getAroundChunksKeys(traceX: number, traceY: number) {
-    return [
-      `${traceX}:${traceY}`,
-      `${traceX + CHUNK_SIZE}:${traceY}`,
-      `${traceX + CHUNK_SIZE}:${traceY + CHUNK_SIZE}`,
-      `${traceX + CHUNK_SIZE}:${traceY - CHUNK_SIZE}`,
-      `${traceX - CHUNK_SIZE}:${traceY}`,
-      `${traceX - CHUNK_SIZE}:${traceY - CHUNK_SIZE}`,
-      `${traceX - CHUNK_SIZE}:${traceY + CHUNK_SIZE}`,
-      `${traceX}:${traceY + CHUNK_SIZE}`,
-      `${traceX}:${traceY - CHUNK_SIZE}`,
-    ];
-  }
+export function getAroundChunksKeys(traceX: number, traceY: number) {
+  return [
+    `${traceX}:${traceY}`,
+    `${traceX + CHUNK_SIZE}:${traceY}`,
+    `${traceX + CHUNK_SIZE}:${traceY + CHUNK_SIZE}`,
+    `${traceX + CHUNK_SIZE}:${traceY - CHUNK_SIZE}`,
+    `${traceX - CHUNK_SIZE}:${traceY}`,
+    `${traceX - CHUNK_SIZE}:${traceY - CHUNK_SIZE}`,
+    `${traceX - CHUNK_SIZE}:${traceY + CHUNK_SIZE}`,
+    `${traceX}:${traceY + CHUNK_SIZE}`,
+    `${traceX}:${traceY - CHUNK_SIZE}`,
+  ];
+}
 
-  export function getNearChunksKeysGen(traceX: number, traceY: number) {
-    return [
-      `${traceX + CHUNK_SIZE}:${traceY}`,
-      `${traceX - CHUNK_SIZE}:${traceY}`,
-      `${traceX}:${traceY + CHUNK_SIZE}`,
-      `${traceX}:${traceY - CHUNK_SIZE}`,
-    ];
-  }
+export function getNearChunksKeysGen(traceX: number, traceY: number) {
+  return [
+    `${traceX + CHUNK_SIZE}:${traceY}`,
+    `${traceX - CHUNK_SIZE}:${traceY}`,
+    `${traceX}:${traceY + CHUNK_SIZE}`,
+    `${traceX}:${traceY - CHUNK_SIZE}`,
+  ];
+}
 
 export function getChunksKeysToRender(
-    traceX: number,
-    traceY: number,
-    chunkQt: number
+  traceX: number,
+  traceY: number,
+  chunkQt: number
 ) {
-  const borderKeys: string[] = [];
   const innerKeys: string[] = [];
+  const borderKeys: string[] = [];
 
-  for (let x = -chunkQt; x < chunkQt; x++) {
-    for (let y = -chunkQt; y < chunkQt; y++) {
+  for (let x = -chunkQt; x <= chunkQt; x++) {
+    for (let y = -chunkQt; y <= chunkQt; y++) {
+
       const worldX = traceX + x * CHUNK_SIZE;
       const worldY = traceY + y * CHUNK_SIZE;
 
       const key = `${worldX}:${worldY}`;
 
       const isBorder =
-          Math.abs(x) === chunkQt ||
-          Math.abs(y) === chunkQt;
+        Math.abs(x) === chunkQt ||
+        Math.abs(y) === chunkQt;
 
       if (isBorder) {
         borderKeys.push(key);
@@ -108,16 +109,16 @@ export function getChunksKeysToRender(
   };
 }
 
-  export function getCoordsFromIndex(index: number, width: number): {
-    localX: number;
-    localY: number;
-    localZ: number;
-  } { 
-    const localX = index % width;
-    const localY = Math.floor(index / width) % width;
-    const localZ = Math.floor(index / (width * width));
-    return { localX, localY, localZ };
-  }
+export function getCoordsFromIndex(index: number, width: number): {
+  localX: number;
+  localY: number;
+  localZ: number;
+} {
+  const localX = index % width;
+  const localY = Math.floor(index / width) % width;
+  const localZ = Math.floor(index / (width * width));
+  return { localX, localY, localZ };
+}
 
 export function chunksAfecteds(
   nestX: number,
@@ -150,7 +151,7 @@ export function chunksAfecteds(
 }
 
 export function getLayerIndex(z: number): number {
-    return Math.floor(z / CHUNK_LAYER_HEIGHT);
+  return Math.floor(z / CHUNK_LAYER_HEIGHT);
 }
 
 export function getIndex(x: number, y: number, z: number, width: number): number {

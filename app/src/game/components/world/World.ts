@@ -1,48 +1,58 @@
 import * as THREE from "three";
+
 import { MeshBVH } from "three-mesh-bvh";
+
 import { ChunkBlockGenData, ChunkLayer } from "../interfaces/ChunkGenData";
+
 import {
   getChunksKeysToRender,
   getNearChunksKeysGen,
   hashUint8Array,
   remapMeshIndex,
 } from "../utils/Utils";
+
 import { ChunkUserData } from "../interfaces/ChunkUserData";
+
 import { createWorker } from "../workers/WorkerFac";
+
 import { WorkerPaths } from "../workers/WorkerFac";
+
 import { ChunkMsgTypes } from "../enums/ChunkMsgTypes.ts";
+
 import { ChunkMan } from "./ChunkMan.ts";
+
 import { Player } from "../player/Player.ts";
+
 import { Vector3 } from "three";
+
 import { CHUNK_SIZE } from "../const/Const.ts";
+
 import { WorkerPool } from "../workers/WorkerPool.ts";
 
 export class World extends THREE.Group {
   private chunkQt: number | null;
+
   private material: THREE.MeshLambertMaterial = new THREE.MeshLambertMaterial({
     color: "gray",
   });
+
   private seed: number | undefined;
+
   private chunkMan = new ChunkMan();
+
   private player: Player | undefined;
+
   private workerPool: WorkerPool;
-  private revealingChunks = new Set<THREE.Mesh>();
-  private fadingOutChunks = new Map<
-    string,
-    {
-      meshes: THREE.Mesh[];
-      start: number;
-      dispose: boolean;
-      resolve: () => void;
-    }
-  >();
 
   constructor(chunkQt: number) {
     super();
+
     this.chunkQt = chunkQt;
+
     const cores = navigator.hardwareConcurrency
       ? Math.max(2, navigator.hardwareConcurrency - 1)
       : 4;
+
     this.workerPool = new WorkerPool(
       () => createWorker(WorkerPaths.CHUNK_GENERATION),
       cores,
@@ -80,6 +90,7 @@ export class World extends THREE.Group {
 
       if (type == ChunkMsgTypes.GEN_MESH) {
         neighbourChunks = this.getNeighbourChunks(traceX, traceY);
+
         currentChunk =
           this.chunkMan.getChunkBlocksMap().get(`${traceX}:${traceY}`) ?? [];
       }
@@ -87,7 +98,6 @@ export class World extends THREE.Group {
       try {
         const event = await this.workerPool.execute({
           traceX,
-          
           traceY,
           seed: this.seed,
           type,
@@ -116,6 +126,7 @@ export class World extends THREE.Group {
     traceY: number,
   ): (Uint8Array[] | undefined)[] {
     const chunkNeighbours = getNearChunksKeysGen(traceX, traceY);
+
     return chunkNeighbours.map((c) => this.chunkMan.getChunkBlocksMap().get(c));
   }
 
@@ -141,6 +152,7 @@ export class World extends THREE.Group {
     traceY: number,
   ): void {
     const { blocks } = e.data;
+
     const key = `${traceX}:${traceY}`;
 
     if (!blocks || !key) return;
@@ -161,24 +173,17 @@ export class World extends THREE.Group {
     const normalNumComponents = 3;
 
     const key = `${traceX}:${traceY}`;
+
     const layerMeshs = [];
     const bvhs = [];
 
     const meshsMemorys = this.chunkMan.getChunkMeshMap().get(key);
+
     const isMeshsInMemory = meshsMemorys && meshsMemorys.length > 0;
 
     if (isMeshsInMemory && meshsMemorys[0].visible === false) {
       meshsMemorys.forEach((mesh) => {
-        const material = mesh.material as THREE.MeshLambertMaterial;
-
-        material.transparent = true;
-        material.opacity = 0;
-
-        mesh.userData.revealStart = performance.now();
-
         mesh.visible = true;
-
-        this.revealingChunks.add(mesh);
       });
 
       return;
@@ -192,6 +197,7 @@ export class World extends THREE.Group {
 
     for (let c = 0; c < layers.length; c++) {
       const layer = layers[c];
+
       const layerBlockData = blockData[c];
 
       const positions = layer.positions;
@@ -220,6 +226,7 @@ export class World extends THREE.Group {
       geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
 
       const indexAttr = geometry.getIndex()!;
+
       const originalIndexMap: number[][] = [];
 
       for (let i = 0; i < indexAttr.count; i += 3) {
@@ -236,6 +243,7 @@ export class World extends THREE.Group {
       geometry.computeBoundingSphere();
 
       const newIndexAttr = geometry.getIndex()!;
+
       const reorderedIndexMap: number[][] = [];
 
       for (let i = 0; i < newIndexAttr.count; i += 3) {
@@ -263,22 +271,17 @@ export class World extends THREE.Group {
 
       if (isMeshsInMemory) {
         mesh = meshsMemorys[c];
+
         mesh.geometry.dispose();
         mesh.geometry = geometry;
         mesh.userData = userData;
       } else {
         const material = this.material.clone();
 
-        material.transparent = true;
-        material.opacity = 0;
-
         mesh = new THREE.Mesh(geometry, material);
 
         mesh.userData = userData;
-        mesh.userData.revealStart = performance.now();
-        mesh.userData = userData;
         mesh.userData.hash = hashUint8Array(layerBlockData);
-        this.revealingChunks.add(mesh);
       }
 
       bvhs.push({
@@ -286,82 +289,18 @@ export class World extends THREE.Group {
         matrix: mesh.matrixWorld,
       });
 
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+
       layerMeshs.push(mesh);
     }
 
     this.chunkMan.setValueMeshMap(key, layerMeshs);
+
     this.chunkMan.setValueColliderMap(key, bvhs);
 
     if (!isMeshsInMemory) {
       layerMeshs.forEach((l) => this.add(l));
-    }
-  }
-
-  updateChunkReveal() {
-    const now = performance.now();
-    const duration = 300;
-
-    for (const mesh of this.revealingChunks) {
-      const material = mesh.material as THREE.MeshLambertMaterial;
-
-      let progress = (now - mesh.userData.revealStart) / duration;
-
-      progress = Math.min(progress, 1);
-
-      const eased = progress * progress * (3 - 2 * progress);
-
-      material.opacity = eased;
-
-      if (progress >= 1) {
-        material.opacity = 1;
-        material.transparent = false;
-
-        this.revealingChunks.delete(mesh);
-      }
-    }
-  }
-
-  updateChunkFadeOut() {
-    const now = performance.now();
-    const duration = 300;
-
-    for (const [chunkKey, fade] of this.fadingOutChunks) {
-      let progress = (now - fade.start) / duration;
-
-      progress = Math.min(progress, 1);
-
-      const eased = 1 - progress * progress * (3 - 2 * progress);
-
-      fade.meshes.forEach((mesh) => {
-        const material = mesh.material as THREE.MeshLambertMaterial;
-
-        material.opacity = eased;
-      });
-
-      if (progress < 1) {
-        continue;
-      }
-
-      fade.meshes.forEach((mesh) => {
-        const material = mesh.material as THREE.MeshLambertMaterial;
-
-        material.opacity = 0;
-
-        if (fade.dispose) {
-          mesh.removeFromParent();
-          mesh.geometry.dispose();
-        } else {
-          mesh.visible = false;
-        }
-      });
-
-      if (fade.dispose) {
-        this.chunkMan.deleteValueChunkMan(chunkKey);
-      }
-
-      this.fadingOutChunks.delete(chunkKey);
-
-      fade.resolve();
     }
   }
 
@@ -390,18 +329,23 @@ export class World extends THREE.Group {
   } | null {
     const chuncks = this.getChunksToGenerate(playerPosition);
 
-    if (chuncks?.innerKeys == null || chuncks?.borderKeys == null) return null;
+    if (chuncks?.innerKeys == null || chuncks?.borderKeys == null) {
+      return null;
+    }
 
     const keys = [...chuncks.innerKeys, ...chuncks.borderKeys];
 
     const filtereds = keys.filter(
       (key) => !this.chunkMan.getChunkMeshMap().has(key),
     );
+
     const generateOnlyMesh = keys.filter((key) => {
       const meshs = this.chunkMan.getChunkMeshMap().get(key);
+
       if (meshs && meshs[0].visible == false) {
         return true;
       }
+
       return false;
     });
 
@@ -425,26 +369,25 @@ export class World extends THREE.Group {
 
     const chunkY = Math.floor(playerLocation.z / CHUNK_SIZE) * CHUNK_SIZE;
 
-    return { chunkX, chunkY };
+    return {
+      chunkX,
+      chunkY,
+    };
   }
 
-  dropChuncks(chuncksToRemove: string[]): Promise<void> {
-    const promises: Promise<void>[] = [];
-
-    chuncksToRemove.forEach((chunkKey) => {
+  dropChuncks(chuncksToRemove: string[]) {
+    for (const chunkKey of chuncksToRemove) {
       const layers = this.chunkMan.getChunkMeshMap().get(chunkKey);
-
       const blockData = this.chunkMan.getChunkBlocksMap().get(chunkKey);
 
       if (!blockData || !layers) {
-        return;
+        continue;
       }
 
       let isChunckIntact = true;
 
       for (let i = 0; i < layers.length; i++) {
         const currentHash = hashUint8Array(blockData[i]);
-
         const currentLayer = layers[i];
 
         if (currentHash !== currentLayer.userData.hash) {
@@ -453,36 +396,25 @@ export class World extends THREE.Group {
         }
       }
 
-      if (this.fadingOutChunks.has(chunkKey)) {
-        return;
+      for (const mesh of layers) {
+        mesh.visible = false;
+
+        if (isChunckIntact) {
+          mesh.removeFromParent();
+          mesh.geometry.dispose();
+        }
       }
 
-      const promise = new Promise<void>((resolve) => {
-        const start = performance.now();
-
-        layers.forEach((mesh) => {
-          const material = mesh.material as THREE.MeshLambertMaterial;
-
-          material.transparent = true;
-          material.opacity = 1;
-        });
-
-        this.fadingOutChunks.set(chunkKey, {
-          meshes: layers,
-          start,
-          dispose: isChunckIntact,
-          resolve,
-        });
-      });
-
-      promises.push(promise);
-    });
-
-    return Promise.all(promises).then(() => {});
+      if (isChunckIntact) {
+        this.chunkMan.deleteValueChunkMan(chunkKey);
+      }
+    }
   }
 
   getChunksToGenerate(playerLocation: Vector3) {
-    if (this.player == null || this.chunkQt == null) return;
+    if (this.player == null || this.chunkQt == null) {
+      return;
+    }
 
     const { chunkX, chunkY } = this.getPlayerChunkPosition(playerLocation);
 
@@ -494,19 +426,5 @@ export class World extends THREE.Group {
     }
 
     return getChunksKeysToRender(chunkX, chunkY, this.chunkQt);
-  }
-
-  setupLights() {
-    const light1 = new THREE.DirectionalLight();
-    light1.position.set(1, 1, 1);
-    this.add(light1);
-
-    const light2 = new THREE.DirectionalLight();
-    light2.position.set(-1, 1, 0.5);
-    this.add(light2);
-
-    const ambiente = new THREE.AmbientLight();
-    ambiente.intensity = 0.1;
-    this.add(ambiente);
   }
 }

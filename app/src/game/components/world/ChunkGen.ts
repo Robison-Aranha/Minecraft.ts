@@ -324,7 +324,7 @@ export class ChunkGen {
   }
 
   getBlock(x: number, z: number, y: number): boolean {
-    const surface = this.baseHeight + this.noise(x, y) * 15;
+    const surface = this.baseHeight + this.noise(x, y) * 10;
     return z < surface;
   }
 }

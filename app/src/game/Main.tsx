@@ -10,8 +10,9 @@ const GameFunction: React.FC = () => {
   const { worldInfo } = useGlobalWorld();
 
   useEffect(() => {
-    game.setSeed(hashStringToSeed(worldInfo.worldSeed))
+    game.setSeed(hashStringToSeed(worldInfo.worldSeed));
     game.setupGame();
+    game.setUpSky();
     game.setupPlayer();
     game.setupWorld();
     if (useStats) {
@@ -22,9 +23,7 @@ const GameFunction: React.FC = () => {
     game.render();
   }, []);
 
-  return (
-    <div id="main" ref={mountRef} />
-  );
+  return <div id="main" ref={mountRef} />;
 };
 
 export default GameFunction;
